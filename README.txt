@@ -1,5 +1,7 @@
 This is MiSTer port of Apple II+ from MiST.
 
+Put *.nib files into Apple-II folder.
+
 Bellow is readme from MiST. Functionality is identical.
 
 ---------------------------------------------------------------------------
