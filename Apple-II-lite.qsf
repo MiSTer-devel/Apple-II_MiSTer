@@ -50,7 +50,7 @@ set_global_assignment -name POWER_BOARD_THERMAL_MODEL "NONE (CONSERVATIVE)"
 set_global_assignment -name TIMEQUEST_MULTICORNER_ANALYSIS OFF
 set_global_assignment -name OPTIMIZE_POWER_DURING_FITTING OFF
 set_global_assignment -name FINAL_PLACEMENT_OPTIMIZATION ALWAYS
-set_global_assignment -name FITTER_EFFORT "FAST FIT"
+set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
 set_global_assignment -name OPTIMIZATION_MODE BALANCED
 set_global_assignment -name SEED 1
 
@@ -353,9 +353,8 @@ set_location_assignment PIN_W20 -to SW[3]
 
 set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:sys/build_id.tcl"
 
-set_global_assignment -name CDF_FILE jtag_lite.cdf
+set_global_assignment -name CDF_FILE jtag.cdf
 set_global_assignment -name QIP_FILE sys/sys.qip
-set_global_assignment -name QIP_FILE sys/sysmem.qip
 set_global_assignment -name VHDL_FILE mockingboard/YM2149_volmix.vhd
 set_global_assignment -name VHDL_FILE mockingboard/vol_table_array.vhd
 set_global_assignment -name VHDL_FILE mockingboard/mockingboard.vhd
@@ -374,5 +373,5 @@ set_global_assignment -name VHDL_FILE vga_controller.vhd
 set_global_assignment -name VHDL_FILE PS2_Ctrl.vhd
 set_global_assignment -name VHDL_FILE roms.vhd
 set_global_assignment -name VHDL_FILE apple2_top.vhd
-set_global_assignment -name SYSTEMVERILOG_FILE Apple-II.sv
+set_global_assignment -name SYSTEMVERILOG_FILE "Apple-II.sv"
 set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
