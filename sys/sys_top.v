@@ -1,7 +1,7 @@
 //============================================================================
 //
 //  MiSTer hardware abstraction module
-//  (c)2017,2018 Sorgelig
+//  (c)2017-2019 Sorgelig
 //
 //  This program is free software; you can redistribute it and/or modify it
 //  under the terms of the GNU General Public License as published by the Free
@@ -25,19 +25,6 @@ module sys_top
 	input         FPGA_CLK1_50,
 	input         FPGA_CLK2_50,
 	input         FPGA_CLK3_50,
-
-	//////////// VGA ///////////
-	output  [5:0] VGA_R,
-	output  [5:0] VGA_G,
-	output  [5:0] VGA_B,
-	inout         VGA_HS,  // VGA_HS is secondary SD card detect when VGA_EN = 1 (inactive)
-	output		  VGA_VS,
-	input         VGA_EN,  // active low
-
-	/////////// AUDIO //////////
-	output		  AUDIO_L,
-	output		  AUDIO_R,
-	output		  AUDIO_SPDIF,
 
 	//////////// HDMI //////////
 	output        HDMI_I2C_SCL,
@@ -69,6 +56,36 @@ module sys_top
 	output        SDRAM_CLK,
 	output        SDRAM_CKE,
 
+`ifdef DUAL_SDRAM
+	////////// SDR #2 //////////
+	output [12:0] SDRAM2_A,
+	inout  [15:0] SDRAM2_DQ,
+	output        SDRAM2_nWE,
+	output        SDRAM2_nCAS,
+	output        SDRAM2_nRAS,
+	output        SDRAM2_nCS,
+	output  [1:0] SDRAM2_BA,
+	output        SDRAM2_CLK,
+
+`else
+	//////////// VGA ///////////
+	output  [5:0] VGA_R,
+	output  [5:0] VGA_G,
+	output  [5:0] VGA_B,
+	inout         VGA_HS,  // VGA_HS is secondary SD card detect when VGA_EN = 1 (inactive)
+	output		  VGA_VS,
+	input         VGA_EN,  // active low
+
+	/////////// AUDIO //////////
+	output		  AUDIO_L,
+	output		  AUDIO_R,
+	output		  AUDIO_SPDIF,
+
+	//////////// SDIO ///////////
+	inout   [3:0] SDIO_DAT,
+	inout         SDIO_CMD,
+	output        SDIO_CLK,
+
 	//////////// I/O ///////////
 	output        LED_USER,
 	output        LED_HDD,
@@ -76,12 +93,17 @@ module sys_top
 	input         BTN_USER,
 	input         BTN_OSD,
 	input         BTN_RESET,
+`endif
 
-	//////////// SDIO ///////////
-	inout   [3:0] SDIO_DAT,
-	inout         SDIO_CMD,
-	output        SDIO_CLK,
-	input         SDIO_CD,
+	////////// I/O ALT /////////
+	inout   [3:0] BTNLED,
+	inout         SDCD_SPDIF,
+
+	////////// ADC //////////////
+	output        ADC_SCK,
+	input         ADC_SDO,
+	output        ADC_SDI,
+	output        ADC_CONVST,
 
 	////////// MB KEY ///////////
 	input   [1:0] KEY,
@@ -90,14 +112,25 @@ module sys_top
 	input   [3:0] SW,
 
 	////////// MB LED ///////////
-	output  [7:0] LED
+	output  [7:0] LED,
+
+	///////// USER IO ///////////
+	inout   [5:0] USER_IO
 );
 
+//////////////////////  Secondary SD  ///////////////////////////////////
 
-assign SDIO_DAT[2:1] = 2'bZZ;
+`ifndef DUAL_SDRAM
+	wire SD_CS, SD_CLK, SD_MOSI, SD_MISO;
 
+	assign SDIO_DAT[2:1]= 2'bZZ;
+	assign SDIO_DAT[3]  = SW[3] ? 1'bZ  : SD_CS;
+	assign SDIO_CLK     = SW[3] ? 1'bZ  : SD_CLK;
+	assign SDIO_CMD     = SW[3] ? 1'bZ  : SD_MOSI;
+	assign SD_MISO      = SW[3] ? 1'b1  : SDIO_DAT[0];
+`endif
 
-//////////////////////////  LEDs  ///////////////////////////////////////
+//////////////////////  LEDs/Buttons  ///////////////////////////////////
 
 reg [7:0] led_overtake = 0;
 reg [7:0] led_state    = 0;
@@ -105,16 +138,45 @@ reg [7:0] led_state    = 0;
 wire led_p =  led_power[1] ? ~led_power[0] : 1'b0;
 wire led_d =  led_disk[1]  ? ~led_disk[0]  : ~(led_disk[0] | gp_out[29]);
 wire led_u = ~led_user;
+wire led_locked;
 
-assign LED_POWER = led_p ? 1'bZ : 1'b0;
-assign LED_HDD   = led_d ? 1'bZ : 1'b0;
-assign LED_USER  = led_u ? 1'bZ : 1'b0;
+`ifndef DUAL_SDRAM
+	assign LED_POWER = (SW[3] | led_p) ? 1'bZ : 1'b0;
+	assign LED_HDD   = (SW[3] | led_d) ? 1'bZ : 1'b0;
+	assign LED_USER  = (SW[3] | led_u) ? 1'bZ : 1'b0;
+`endif
 
 //LEDs on main board
-assign LED = (led_overtake & led_state) | (~led_overtake & {3'b000, ~led_p, 1'b0, ~led_d, 1'b0, ~led_u});
+assign LED = (led_overtake & led_state) | (~led_overtake & {1'b0,led_locked,1'b0, ~led_p, 1'b0, ~led_d, 1'b0, ~led_u});
 
+reg [3:0] btnled = 3'bZZZ;
+reg btn_r = 0, btn_o = 0, btn_u = 0;
+always @(posedge FPGA_CLK2_50) begin
+	reg [12:0] cnt;
 
-//////////////////////////  Buttons  ///////////////////////////////////
+	if(SW[3]) begin
+		cnt <= cnt + 1'd1;
+		if(~&cnt[12:8]) btnled <= ~{1'b0,led_p,led_d,led_u};
+		else begin
+			if(~cnt[7]) btnled <= 0;
+			else btnled <= 4'b0ZZZ;
+			if(&cnt) {btn_r,btn_o,btn_u} <= ~BTNLED[2:0];
+		end
+	end
+	else begin
+		cnt <= 0;
+		`ifdef DUAL_SDRAM
+			{btn_r,btn_o,btn_u} <= 0;
+			btnled <= 4'bZZZZ;
+		`else
+			{btn_r,btn_o,btn_u} <= ~{BTN_RESET,BTN_OSD,BTN_USER};
+			btnled <= {(~VGA_EN & sog & ~(vs1 ^ hs1)) ? 1'b1 : 1'bZ, 3'bZZZ};
+		`endif
+	end
+end
+
+assign BTNLED = btnled;
+
 reg btn_user, btn_osd;
 always @(posedge FPGA_CLK2_50) begin
 	integer div;
@@ -123,20 +185,17 @@ always @(posedge FPGA_CLK2_50) begin
 
 	div <= div + 1'b1;
 	if(div > 100000) div <= 0;
-	
+
 	if(!div) begin
-		deb_user <= {deb_user[6:0], ~(BTN_USER & KEY[1])};
+		deb_user <= {deb_user[6:0], btn_u | ~KEY[1]};
 		if(&deb_user) btn_user <= 1;
 		if(!deb_user) btn_user <= 0;
 
-		deb_osd <= {deb_osd[6:0], ~(BTN_OSD & KEY[0])};
+		deb_osd <= {deb_osd[6:0], btn_o | ~KEY[0]};
 		if(&deb_osd) btn_osd <= 1;
 		if(!deb_osd) btn_osd <= 0;
 	end
 end
-
-reg btn_reset = 1;
-always @(posedge FPGA_CLK2_50) btn_reset <= BTN_RESET;
 
 
 /////////////////////////  HPS I/O  /////////////////////////////////////
@@ -146,23 +205,27 @@ always @(posedge FPGA_CLK2_50) btn_reset <= BTN_RESET;
 wire [31:0] gp_in = {1'b0, btn_user, btn_osd, 9'd0, io_ver, io_ack, io_wide, io_dout};
 wire [31:0] gp_out;
 
-wire  [1:0] io_ver    = 1; // 0 - standard MiST I/O (for quick porting of complex MiST cores). 1 - optimized HPS I/O. 2,3 - reserved for future.
+wire  [1:0] io_ver = 1; // 0 - standard MiST I/O (for quick porting of complex MiST cores). 1 - optimized HPS I/O. 2,3 - reserved for future.
 wire        io_wait;
 wire        io_wide;
 wire [15:0] io_dout;                  
-wire [15:0] io_din    = gp_outr[15:0];
-wire        io_clk    = gp_outr[17];
-wire        io_fpga   = gp_outr[18];
-wire        io_osd    = gp_outr[19];
-wire        io_uio    = gp_outr[20];
+wire [15:0] io_din = gp_outr[15:0];
+wire        io_clk = gp_outr[17];
+wire        io_ss0 = gp_outr[18];
+wire        io_ss1 = gp_outr[19];
+wire        io_ss2 = gp_outr[20];
 //wire        io_sdd    = gp_outr[21]; // used only in ST core
+
+wire io_osd_hdmi = io_ss1 & ~io_ss0;
+wire io_fpga     = ~io_ss1 & io_ss0;
+wire io_uio      = ~io_ss1 & io_ss2;
 
 reg  io_ack;
 reg  rack;
 wire io_strobe = ~rack & io_clk;
 
 always @(posedge clk_sys) begin
-	if(~io_wait | io_strobe) begin
+	if(~(io_wait | vs_wait) | io_strobe) begin
 		rack <= io_clk;
 		io_ack <= rack;
 	end
@@ -189,15 +252,17 @@ cyclonev_hps_interface_mpu_general_purpose h2f_gp
 
 reg [15:0] cfg;
 
-reg        cfg_got   = 0;
-reg        cfg_set   = 0;
-//wire [2:0] hdmi_res  = cfg[10:8];
-wire       dvi_mode  = cfg[7];
-wire       audio_96k = cfg[6];
-wire       ypbpr_en  = cfg[5];
-wire       csync     = cfg[3];
-`ifndef LITE
-wire vga_scaler= cfg[2];
+reg  cfg_got   = 0;
+reg  cfg_set   = 0;
+wire hdmi_limited = cfg[8];
+wire dvi_mode  = cfg[7];
+wire audio_96k = cfg[6];
+`ifndef DUAL_SDRAM
+	wire sog       = cfg[9];
+	wire ypbpr_en  = cfg[5];
+	wire csync     = cfg[3];
+	wire vga_scaler= cfg[2];
+	wire io_osd_vga= io_ss1 & ~io_ss2;
 `endif
 
 reg        cfg_custom_t = 0;
@@ -206,22 +271,39 @@ reg [31:0] cfg_custom_p2;
 
 reg  [4:0] vol_att = 0;
 
-reg        vip_newcfg = 0;
+reg  [6:0] coef_addr;
+reg  [8:0] coef_data;
+reg        coef_wr = 0;
+
+wire [7:0] ARX, ARY;
+reg [11:0] VSET = 0;
+reg  [2:0] scaler_flt;
+reg        lowlat = 0;
+reg        cfg_dis = 0;
+
+reg        vs_wait = 0;
+
 always@(posedge clk_sys) begin
 	reg  [7:0] cmd;
 	reg        has_cmd;
 	reg        old_strobe;
 	reg  [7:0] cnt = 0;
+	reg        vs_d0,vs_d1,vs_d2;
 
 	old_strobe <= io_strobe;
+	coef_wr <= 0;
 
-	if(~io_uio) has_cmd <= 0;
+	if(~io_uio) begin
+		has_cmd <= 0;
+		cmd <= 0;
+	end
 	else
 	if(~old_strobe & io_strobe) begin
 		if(!has_cmd) begin
 			has_cmd <= 1;
 			cmd <= io_din[7:0];
 			cnt <= 0;
+			if(io_din[7:0] == 'h30) vs_wait <= 1;
 		end
 		else begin
 			if(cmd == 1) begin
@@ -232,16 +314,15 @@ always@(posedge clk_sys) begin
 				cfg_set <= 0;
 				cnt <= cnt + 1'd1;
 				if(cnt<8) begin
-					if(!cnt) vip_newcfg <= ~cfg_ready;
-					case(cnt)
-						0: if(WIDTH  != io_din[11:0]) begin WIDTH  <= io_din[11:0]; vip_newcfg <= 1; end
-						1: if(HFP    != io_din[11:0]) begin HFP    <= io_din[11:0]; vip_newcfg <= 1; end
-						2: if(HS     != io_din[11:0]) begin HS     <= io_din[11:0]; vip_newcfg <= 1; end
-						3: if(HBP    != io_din[11:0]) begin HBP    <= io_din[11:0]; vip_newcfg <= 1; end
-						4: if(HEIGHT != io_din[11:0]) begin HEIGHT <= io_din[11:0]; vip_newcfg <= 1; end
-						5: if(VFP    != io_din[11:0]) begin VFP    <= io_din[11:0]; vip_newcfg <= 1; end
-						6: if(VS     != io_din[11:0]) begin VS     <= io_din[11:0]; vip_newcfg <= 1; end
-						7: if(VBP    != io_din[11:0]) begin VBP    <= io_din[11:0]; vip_newcfg <= 1; end
+					case(cnt[2:0])
+						0: if(WIDTH  != io_din[11:0]) WIDTH  <= io_din[11:0];
+						1: if(HFP    != io_din[11:0]) HFP    <= io_din[11:0];
+						2: if(HS     != io_din[11:0]) HS     <= io_din[11:0];
+						3: if(HBP    != io_din[11:0]) HBP    <= io_din[11:0];
+						4: if(HEIGHT != io_din[11:0]) HEIGHT <= io_din[11:0];
+						5: if(VFP    != io_din[11:0]) VFP    <= io_din[11:0];
+						6: if(VS     != io_din[11:0]) VS     <= io_din[11:0];
+						7: if(VBP    != io_din[11:0]) VBP    <= io_din[11:0];
 					endcase
 					if(cnt == 1) begin
 						cfg_custom_p1 <= 0;
@@ -255,15 +336,38 @@ always@(posedge clk_sys) begin
 					if(cnt[1:0]==2) begin
 						cfg_custom_p2[31:16] <= io_din;
 						cfg_custom_t <= ~cfg_custom_t;
-						cnt[1:0] <= 0;
+						cnt[2:0] <= 3'b100;
 					end
+					if(cnt == 8) {lowlat,cfg_dis} <= io_din[15:14];
 				end
+			end
+			if(cmd == 'h2F) begin
+				cnt <= cnt + 1'd1;
+				case(cnt[3:0])
+					0: {FB_EN,FB_FLT,FB_FMT} <= {io_din[15], io_din[14], io_din[5:0]};
+					1: FB_BASE[15:0]  <= io_din[15:0];
+					2: FB_BASE[31:16] <= io_din[15:0];
+					3: FB_WIDTH       <= io_din[11:0];
+					4: FB_HEIGHT      <= io_din[11:0];
+					5: FB_HMIN        <= io_din[11:0];
+					6: FB_HMAX        <= io_din[11:0];
+					7: FB_VMIN        <= io_din[11:0];
+					8: FB_VMAX        <= io_din[11:0];
+				endcase
 			end
 			if(cmd == 'h25) {led_overtake, led_state} <= io_din;
 			if(cmd == 'h26) vol_att <= io_din[4:0];
 			if(cmd == 'h27) VSET    <= io_din[11:0];
+			if(cmd == 'h2A) {coef_wr,coef_addr,coef_data} <= {1'b1,io_din};
+			if(cmd == 'h2B) scaler_flt <= io_din[2:0];
 		end
 	end
+	
+	vs_d0 <= HDMI_TX_VS;
+	if(vs_d0 == HDMI_TX_VS) vs_d1 <= vs_d0;
+
+	vs_d2 <= vs_d1;
+	if(~vs_d2 & vs_d1) vs_wait <= 0;
 end
 
 always @(posedge clk_sys) begin
@@ -275,6 +379,36 @@ always @(posedge clk_sys) begin
 		if(~vsd2 & vsd) cfg_got <= cfg_set;
 	end
 end
+
+cyclonev_hps_interface_peripheral_uart uart
+(
+	.ri(0),
+	.dsr(uart_dsr),
+	.dcd(uart_dsr),
+	.dtr(uart_dtr),
+
+	.cts(uart_cts),
+	.rts(uart_rts),
+	.rxd(uart_rxd),
+	.txd(uart_txd)
+);
+
+wire aspi_sck,aspi_mosi,aspi_ss;
+cyclonev_hps_interface_peripheral_spi_master spi
+(
+	.sclk_out(aspi_sck),
+	.txd(aspi_mosi), // mosi
+	.rxd(1),         // miso
+
+	.ss_0_n(aspi_ss),
+	.ss_in_n(1)
+);
+
+wire [63:0] f2h_irq = {HDMI_TX_VS};
+cyclonev_hps_interface_interrupts interrupts
+(
+	.irq(f2h_irq)
+);
 
 ///////////////////////////  RESET  ///////////////////////////////////
 
@@ -296,192 +430,26 @@ always @(posedge FPGA_CLK2_50) begin
 	resetd2 <= resetd;
 end
 
-wire clk_ctl;
+wire clk_100m;
+wire clk_hdmi  = ~HDMI_TX_CLK;  // Internal HDMI clock, inverted in relation to external clock
+wire clk_audio = FPGA_CLK3_50;
+wire clk_pal   = FPGA_CLK3_50;
 
-///////////////////////// VIP version  ///////////////////////////////
-
-wire iHdmiClk = ~HDMI_TX_CLK;			// Internal HDMI clock, inverted in relation to external clock
-
-`ifndef LITE
-
-wire reset;
-vip vip
-(
-	//Reset/Clock
-	.reset_reset_req(reset_req | ~cfg_ready),
-	.reset_reset(reset),
-	.reset_reset_vip(0),
-
-	//DE10-nano has no reset signal on GPIO, so core has to emulate cold reset button.
-	.reset_cold_req(~btn_reset),
-	.reset_warm_req(0),
-
-	//control
-	.ctl_address(ctl_address),
-	.ctl_write(ctl_write),
-	.ctl_writedata(ctl_writedata),
-	.ctl_waitrequest(ctl_waitrequest),
-	.ctl_clock(clk_ctl),
-	.ctl_reset(ctl_reset),
-
-	//64-bit DDR3 RAM access
-	.ramclk1_clk(ram_clk),
-	.ram1_address(ram_address),
-	.ram1_burstcount(ram_burstcount),
-	.ram1_waitrequest(ram_waitrequest),
-	.ram1_readdata(ram_readdata),
-	.ram1_readdatavalid(ram_readdatavalid),
-	.ram1_read(ram_read),
-	.ram1_writedata(ram_writedata),
-	.ram1_byteenable(ram_byteenable),
-	.ram1_write(ram_write),
-
-	//Spare 64-bit DDR3 RAM access
-	//currently unused
-	//can combine with ram1 to make a wider RAM bus (although will increase the latency)
-	.ramclk2_clk(0),
-	.ram2_address(0),
-	.ram2_burstcount(0),
-	.ram2_waitrequest(),
-	.ram2_readdata(),
-	.ram2_readdatavalid(),
-	.ram2_read(0),
-	.ram2_writedata(0),
-	.ram2_byteenable(0),
-	.ram2_write(0),
-
-	//Video input
-	.in_clk(clk_vid),
-	.in_data({r_out, g_out, b_out}),
-	.in_de(de),
-	.in_v_sync(vs),
-	.in_h_sync(hs),
-	.in_ce(ce_pix),
-	.in_f(0),
-
-	//HDMI output
-	.hdmi_clk(iHdmiClk),
-	.hdmi_data(hdmi_data),
-	.hdmi_de(hdmi_de),
-	.hdmi_v_sync(HDMI_TX_VS),
-	.hdmi_h_sync(HDMI_TX_HS)
-);
-
-wire  [8:0] ctl_address;
-wire        ctl_write;
-wire [31:0] ctl_writedata;
-wire        ctl_waitrequest;
-wire        ctl_reset;
-wire  [7:0] ARX, ARY;
-
-vip_config vip_config
-(
-	.clk(clk_ctl),
-	.reset(ctl_reset),
-
-	.ARX(ARX),
-	.ARY(ARY),
-	.CFG_SET(vip_newcfg & cfg_got),
-
-	.WIDTH(WIDTH),
-	.HFP(HFP),
-	.HBP(HBP),
-	.HS(HS),
-	.HEIGHT(HEIGHT),
-	.VFP(VFP),
-	.VBP(VBP),
-	.VS(VS),
-	.VSET(VSET),
-
-	.address(ctl_address),
-	.write(ctl_write),
-	.writedata(ctl_writedata),
-	.waitrequest(ctl_waitrequest)
-);
-`endif
-
-
-/////////////////////////  Lite version  ////////////////////////////////
-
-`ifdef LITE
-
-wire [11:0] x;
-wire [11:0] y;
-
-sync_vg #(.X_BITS(12), .Y_BITS(12)) sync_vg
-(
-	.clk(iHdmiClk),
-	.reset(reset),
-	.v_total(HEIGHT+VFP+VBP+VS),
-	.v_fp(VFP),
-	.v_bp(VBP),
-	.v_sync(VS),
-	.h_total(WIDTH+HFP+HBP+HS),
-	.h_fp(HFP),
-	.h_bp(HBP),
-	.h_sync(HS),
-	.hv_offset(0),
-	.vde_out(vde),
-	.hde_out(hde),
-	.vs_out(vs_hdmi),
-	.v_count_out(),
-	.h_count_out(),
-	.x_out(x),
-	.y_out(y),
-	.hs_out(hs_hdmi)
-);
-
-wire vde, hde;
-wire vs_hdmi;
-wire hs_hdmi;
-
-
-pattern_vg
-#(
-	.B(8), // Bits per channel
-	.X_BITS(12),
-	.Y_BITS(12),
-	.FRACTIONAL_BITS(12) // Number of fractional bits for ramp pattern
-)
-pattern_vg
-(
-	.reset(reset),
-	.clk_in(iHdmiClk),
-	.x(x),
-	.y(y),
-	.vn_in(vs_hdmi),
-	.hn_in(hs_hdmi),
-	.dn_in(vde & hde),
-	.r_in(0),
-	.g_in(0),
-	.b_in(0),
-	.vn_out(HDMI_TX_VS),
-	.hn_out(HDMI_TX_HS),
-	.den_out(hdmi_de),
-	.r_out(hdmi_data[23:16]),
-	.g_out(hdmi_data[15:8]),
-	.b_out(hdmi_data[7:0]),
-	.total_active_pix(WIDTH),
-	.total_active_lines(HEIGHT),
-	.pattern(4),
-	.ramp_step(20'h0333)
-);
-
+////////////////////  SYSTEM MEMORY & SCALER  /////////////////////////
 
 wire reset;
 sysmem_lite sysmem
 (
 	//Reset/Clock
-	.reset_reset_req(reset_req),
-	.reset_reset(reset),
-	.ctl_clock(clk_ctl),
+	.reset_core_req(reset_req),
+	.reset_out(reset),
+	.clock(clk_100m),
 
 	//DE10-nano has no reset signal on GPIO, so core has to emulate cold reset button.
-	.reset_cold_req(~btn_reset),
-	.reset_warm_req(0),
+	.reset_hps_cold_req(btn_r),
 
 	//64-bit DDR3 RAM access
-	.ramclk1_clk(ram_clk),
+	.ram1_clk(ram_clk),
 	.ram1_address(ram_address),
 	.ram1_burstcount(ram_burstcount),
 	.ram1_waitrequest(ram_waitrequest),
@@ -492,22 +460,21 @@ sysmem_lite sysmem
 	.ram1_byteenable(ram_byteenable),
 	.ram1_write(ram_write),
 
-	//Spare 64-bit DDR3 RAM access
-	//currently unused
-	//can combine with ram1 to make a wider RAM bus (although will increase the latency)
-	.ramclk2_clk(0),
-	.ram2_address(0),
-	.ram2_burstcount(0),
-	.ram2_waitrequest(),
-	.ram2_readdata(),
-	.ram2_readdatavalid(),
-	.ram2_read(0),
+	//64-bit DDR3 RAM access
+	.ram2_clk(clk_audio),
+	.ram2_address((ap_en1 == ap_en2) ? aram_address : pram_address),
+	.ram2_burstcount((ap_en1 == ap_en2) ? aram_burstcount : pram_burstcount),
+	.ram2_waitrequest(aram_waitrequest),
+	.ram2_readdata(aram_readdata),
+	.ram2_readdatavalid(aram_readdatavalid),
+	.ram2_read((ap_en1 == ap_en2) ? aram_read : pram_read),
 	.ram2_writedata(0),
-	.ram2_byteenable(0),
+	.ram2_byteenable(8'hFF),
 	.ram2_write(0),
 
+	//128-bit DDR3 RAM access
 	// HDMI frame buffer
-	.vbuf_clk(clk_ctl),
+	.vbuf_clk(clk_100m),
 	.vbuf_address(vbuf_address),
 	.vbuf_burstcount(vbuf_burstcount),
 	.vbuf_waitrequest(vbuf_waitrequest),
@@ -528,46 +495,194 @@ wire         vbuf_read;
 wire [127:0] vbuf_writedata;
 wire  [15:0] vbuf_byteenable;
 wire         vbuf_write;
-/*
-assign HDMI_TX_VS = vs_hdmi;
-assign HDMI_TX_HS = hs_hdmi;
 
-hdmi_lite hdmi_lite
+ascal 
+#(
+	.RAMBASE(32'h20000000),
+	.N_DW(128),
+	.N_AW(28)
+)
+ascal
+(
+	.reset_na (~reset_req),
+	.run      (1),
+	.freeze   (0),
+
+	.i_clk    (clk_vid),
+	.i_ce     (ce_pix),
+	.i_r      (r_out),
+	.i_g      (g_out),
+	.i_b      (b_out),
+	.i_hs     (hs),
+	.i_vs     (vs),
+	.i_fl     (f1),
+	.i_de     (de),
+	.iauto    (1),
+	.himin    (0),
+	.himax    (0),
+	.vimin    (0),
+	.vimax    (0),
+
+	.o_clk    (clk_hdmi),
+	.o_ce     (1),
+	.o_r      (hdmi_data[23:16]),
+	.o_g      (hdmi_data[15:8]),
+	.o_b      (hdmi_data[7:0]),
+	.o_hs     (HDMI_TX_HS),
+	.o_vs     (HDMI_TX_VS),
+	.o_de     (hdmi_de),
+	.o_lltune (lltune),
+	.htotal   (WIDTH + HFP + HBP + HS),
+	.hsstart  (WIDTH + HFP),
+	.hsend    (WIDTH + HFP + HS),
+	.hdisp    (WIDTH),
+	.hmin     (hmin),
+	.hmax     (hmax),
+	.vtotal   (HEIGHT + VFP + VBP + VS),
+	.vsstart  (HEIGHT + VFP),
+	.vsend    (HEIGHT + VFP + VS),
+	.vdisp    (HEIGHT),
+	.vmin     (vmin),
+	.vmax     (vmax),
+
+	.mode     ({~lowlat,FB_EN ? FB_FLT : |scaler_flt,2'b00}),
+	.poly_clk (clk_sys),
+	.poly_a   (coef_addr),
+	.poly_dw  (coef_data),
+	.poly_wr  (coef_wr),
+
+	.pal_clk  (clk_pal),
+	.pal_dw   (pal_d),
+	.pal_a    (pal_a),
+	.pal_wr   (pal_wr),
+
+	.o_fb_ena         (FB_EN),
+	.o_fb_hsize       (FB_WIDTH),
+	.o_fb_vsize       (FB_HEIGHT),
+	.o_fb_format      (FB_FMT),
+	.o_fb_base        (FB_BASE),
+
+	.avl_clk          (clk_100m),
+	.avl_waitrequest  (vbuf_waitrequest),
+	.avl_readdata     (vbuf_readdata),
+	.avl_readdatavalid(vbuf_readdatavalid),
+	.avl_burstcount   (vbuf_burstcount),
+	.avl_writedata    (vbuf_writedata),
+	.avl_address      (vbuf_address),
+	.avl_write        (vbuf_write),
+	.avl_read         (vbuf_read),
+	.avl_byteenable   (vbuf_byteenable)
+);
+
+reg        FB_EN     = 0;
+reg        FB_FLT    = 0;
+reg  [5:0] FB_FMT    = 0;
+reg [11:0] FB_WIDTH  = 0;
+reg [11:0] FB_HEIGHT = 0;
+reg [11:0] FB_HMIN   = 0;
+reg [11:0] FB_HMAX   = 0;
+reg [11:0] FB_VMIN   = 0;
+reg [11:0] FB_VMAX   = 0;
+reg [31:0] FB_BASE   = 0;
+
+reg [11:0] hmin;
+reg [11:0] hmax;
+reg [11:0] vmin;
+reg [11:0] vmax;
+
+always @(posedge clk_vid) begin
+	reg [31:0] wcalc;
+	reg [31:0] hcalc;
+	reg  [2:0] state;
+	reg [11:0] videow;
+	reg [11:0] videoh;
+	
+	state <= state + 1'd1;
+	case(state)
+		0: if(FB_EN) begin
+				hmin <= FB_HMIN;
+				vmin <= FB_VMIN;
+				hmax <= FB_HMAX;
+				vmax <= FB_VMAX;
+				state<= 0;
+			end
+			else if(ARX && ARY) begin
+				wcalc <= VSET ? (VSET*ARX)/ARY : (HEIGHT*ARX)/ARY;
+				hcalc <= (WIDTH*ARY)/ARX;
+			end
+			else begin
+				hmin <= 0;
+				hmax <= WIDTH - 1'd1;
+				vmin <= 0;
+				vmax <= HEIGHT - 1'd1;
+				wcalc<= WIDTH;
+				hcalc<= HEIGHT;
+				state<= 0;
+			end
+		6: begin
+				videow <= (!VSET && (wcalc > WIDTH))     ? WIDTH  : wcalc[11:0];
+				videoh <= VSET ? VSET : (hcalc > HEIGHT) ? HEIGHT : hcalc[11:0];
+			end
+		7: begin
+				hmin <= ((WIDTH  - videow)>>1);
+				hmax <= ((WIDTH  - videow)>>1) + videow - 1'd1;
+				vmin <= ((HEIGHT - videoh)>>1);
+				vmax <= ((HEIGHT - videoh)>>1) + videoh - 1'd1;
+			end
+	endcase
+end
+
+wire [15:0] lltune;
+
+pll_hdmi_adj pll_hdmi_adj
+(
+	.clk(FPGA_CLK1_50),
+	.reset_na(~reset_req),
+
+	.llena(lowlat),
+	.lltune({16{hdmi_config_done | cfg_dis}} & lltune),
+	.locked(led_locked),
+	.i_waitrequest(adj_waitrequest),
+	.i_write(adj_write),
+	.i_address(adj_address),
+	.i_writedata(adj_data),
+	.o_waitrequest(cfg_waitrequest),
+	.o_write(cfg_write),
+	.o_address(cfg_address),
+	.o_writedata(cfg_data)
+);
+
+wire [23:0] pal_d;
+wire  [7:0] pal_a;
+wire        pal_wr;
+
+wire ap_en1, ap_en2;
+
+wire [28:0] pram_address;
+wire  [7:0] pram_burstcount;
+wire        pram_read;
+
+fbpal fbpal
 (
 	.reset(reset),
+	.en_in(ap_en2),
+	.en_out(ap_en1),
 
-	.clk_video(clk_vid),
-	.ce_pixel(ce_pix),
-	.video_vs(vs),
-	.video_de(de),
-	.video_d({r_out,g_out,b_out}),
+	.ram_clk(clk_pal),
+	.ram_address(pram_address),
+	.ram_burstcount(pram_burstcount),
+	.ram_waitrequest(aram_waitrequest),
+	.ram_readdata(aram_readdata),
+	.ram_readdatavalid(aram_readdatavalid),
+	.ram_read(pram_read),
 
-	.clk_hdmi(HDMI_TX_CLK),
-	.hdmi_hde(hde),
-	.hdmi_vde(vde),
-	.hdmi_d(hdmi_data),
-	.hdmi_de(hdmi_de),
+	.fb_address(FB_BASE),
 
-	.screen_w(WIDTH),
-	.screen_h(HEIGHT),
-	.quadbuf(1),
-	.scale_x(0),
-	.scale_y(0),
-	.scale_auto(1),
-
-	.clk_vbuf(clk_ctl),
-	.vbuf_address(vbuf_address),
-	.vbuf_burstcount(vbuf_burstcount),
-	.vbuf_waitrequest(vbuf_waitrequest),
-	.vbuf_writedata(vbuf_writedata),
-	.vbuf_byteenable(vbuf_byteenable),
-	.vbuf_write(vbuf_write),
-	.vbuf_readdata(vbuf_readdata),
-	.vbuf_readdatavalid(vbuf_readdatavalid),
-	.vbuf_read(vbuf_read)
+	.pal_en(~FB_FMT[2] & FB_FMT[1] & FB_FMT[0] & FB_EN),
+	.pal_a(pal_a),
+	.pal_d(pal_d),
+	.pal_wr(pal_wr)
 );
-*/
-`endif
 
 
 /////////////////////////  HDMI output  /////////////////////////////////
@@ -590,16 +705,18 @@ reg  [11:0] HEIGHT = 1080;
 reg  [11:0] VFP    = 4;
 reg  [11:0] VS     = 5;
 reg  [11:0] VBP    = 36;
-reg  [11:0] VSET   = 0;
 
 wire [63:0] reconfig_to_pll;
 wire [63:0] reconfig_from_pll;
-wire        cfg_waitrequest;
-reg         cfg_write;
-reg   [5:0] cfg_address;
-reg  [31:0] cfg_data;
+wire        cfg_waitrequest,adj_waitrequest;
+wire        cfg_write;
+wire  [5:0] cfg_address;
+wire [31:0] cfg_data;
+reg         adj_write;
+reg   [5:0] adj_address;
+reg  [31:0] adj_data;
 
-pll_hdmi_cfg pll_hdmi_cfg
+pll_cfg pll_cfg
 (
 	.mgmt_clk(FPGA_CLK1_50),
 	.mgmt_reset(reset_req),
@@ -623,208 +740,245 @@ always @(posedge FPGA_CLK1_50) begin
 	gotd  <= cfg_got;
 	gotd2 <= gotd;
 	
-	cfg_write <= 0;
+	adj_write <= 0;
 	
 	custd <= cfg_custom_t;
 	custd2 <= custd;
 	if(custd2 != custd & ~gotd) begin
-		cfg_address <= cfg_custom_p1;
-		cfg_data <= cfg_custom_p2;
-		cfg_write <= 1;
+		adj_address <= cfg_custom_p1;
+		adj_data <= cfg_custom_p2;
+		adj_write <= 1;
 	end
 
 	if(~gotd2 & gotd) begin
-		cfg_address <= 2;
-		cfg_data <= 0;
-		cfg_write <= 1;
+		adj_address <= 2;
+		adj_data <= 0;
+		adj_write <= 1;
 	end
 
-	old_wait <= cfg_waitrequest;
-	if(old_wait & ~cfg_waitrequest & gotd) cfg_ready <= 1;
+	old_wait <= adj_waitrequest;
+	if(old_wait & ~adj_waitrequest & gotd) cfg_ready <= 1;
 end
 
+wire hdmi_config_done;
 hdmi_config hdmi_config
 (
 	.iCLK(FPGA_CLK1_50),
-	.iRST_N(cfg_ready & ~HDMI_TX_INT),
+	.iRST_N(cfg_ready & ~HDMI_TX_INT & ~cfg_dis),
+	.done(hdmi_config_done),
 
 	.I2C_SCL(HDMI_I2C_SCL),
 	.I2C_SDA(HDMI_I2C_SDA),
 
 	.dvi_mode(dvi_mode),
-	.audio_96k(audio_96k)
+	.audio_96k(audio_96k),
+	.hdmi_limited(hdmi_limited)
 );
 
 wire [23:0] hdmi_data;
+wire [23:0] hdmi_data_sl;
 wire        hdmi_de;
+
+scanlines #(1) HDMI_scanlines
+(
+	.clk(clk_hdmi),
+
+	.scanlines(scanlines),
+	.din(hdmi_data),
+	.dout(hdmi_data_sl),
+	.hs(HDMI_TX_HS),
+	.vs(HDMI_TX_VS)
+);
 
 osd hdmi_osd
 (
 	.clk_sys(clk_sys),
 
-	.io_osd(io_osd),
+	.io_osd(io_osd_hdmi),
 	.io_strobe(io_strobe),
 	.io_din(io_din),
 
-	.clk_video(iHdmiClk),
-	.din(hdmi_data),
+	.clk_video(clk_hdmi),
+	.din(hdmi_data_sl),
 	.dout(HDMI_TX_D),
 	.de_in(hdmi_de),
-	.de_out(HDMI_TX_DE)
+	.de_out(HDMI_TX_DE),
+
+	.osd_status(osd_status)
 );
-
-assign HDMI_MCLK = 0;
-i2s i2s
-(
-	.reset(~cfg_ready),
-	.clk_sys(FPGA_CLK3_50),
-	.half_rate(~audio_96k),
-
-	.sclk(HDMI_SCLK),
-	.lrclk(HDMI_LRCLK),
-	.sdata(HDMI_I2S),
-
-	//Could inverse the MSB but it will shift 0 level to -MAX level
-	.left_chan (audio_l >> !audio_s),
-	.right_chan(audio_r >> !audio_s)
-);
-
 
 /////////////////////////  VGA output  //////////////////////////////////
 
-wire [23:0] vga_q;
-osd vga_osd
-(
-	.clk_sys(clk_sys),
+`ifndef DUAL_SDRAM
+	wire [23:0] vga_data_sl;
 
-	.io_osd(io_osd),
-	.io_strobe(io_strobe),
-	.io_din(io_din),
+	scanlines #(0) VGA_scanlines
+	(
+		.clk(clk_vid),
 
-	.clk_video(clk_vid),
-	.din(de ? {r_out, g_out, b_out} : 24'd0),
-	.dout(vga_q),
-	.de_in(de)
-);
+		.scanlines(scanlines),
+		.din(de ? {r_out, g_out, b_out} : 24'd0),
+		.dout(vga_data_sl),
+		.hs(hs1),
+		.vs(vs1)
+	);
 
-wire [23:0] vga_o;
+	osd vga_osd
+	(
+		.clk_sys(clk_sys),
 
-vga_out vga_out
-(
-	.ypbpr_full(1),
-	.ypbpr_en(ypbpr_en),
-	.dout(vga_o),
-`ifdef LITE
-	.din(vga_q)
-`else
-	.din(vga_scaler ? HDMI_TX_D : vga_q)
-`endif
-);
+		.io_osd(io_osd_vga),
+		.io_strobe(io_strobe),
+		.io_din(io_din),
 
-`ifdef LITE
-	wire vs1 = vs;
-	wire hs1 = hs;
-`else
+		.clk_video(clk_vid),
+		.din(vga_data_sl),
+		.dout(vga_q),
+		.de_in(de)
+	);
+
+	wire [23:0] vga_q;
+	wire [23:0] vga_o;
+
+	vga_out vga_out
+	(
+		.ypbpr_full(1),
+		.ypbpr_en(ypbpr_en),
+		.dout(vga_o),
+		.din(vga_scaler ? {24{HDMI_TX_DE}} & HDMI_TX_D : vga_q)
+	);
+
 	wire vs1 = vga_scaler ? HDMI_TX_VS : vs;
 	wire hs1 = vga_scaler ? HDMI_TX_HS : hs;
+
+	assign VGA_VS = (VGA_EN | SW[3]) ? 1'bZ      : csync ?     1'b1     : ~vs1;
+	assign VGA_HS = (VGA_EN | SW[3]) ? 1'bZ      : csync ? ~(vs1 ^ hs1) : ~hs1;
+	assign VGA_R  = (VGA_EN | SW[3]) ? 6'bZZZZZZ : vga_o[23:18];
+	assign VGA_G  = (VGA_EN | SW[3]) ? 6'bZZZZZZ : vga_o[15:10];
+	assign VGA_B  = (VGA_EN | SW[3]) ? 6'bZZZZZZ : vga_o[7:2];
 `endif
-
-assign VGA_VS = VGA_EN ? 1'bZ      : csync ?     1'b1     : ~vs1;
-assign VGA_HS = VGA_EN ? 1'bZ      : csync ? ~(vs1 ^ hs1) : ~hs1;
-assign VGA_R  = VGA_EN ? 6'bZZZZZZ : vga_o[23:18];
-assign VGA_G  = VGA_EN ? 6'bZZZZZZ : vga_o[15:10];
-assign VGA_B  = VGA_EN ? 6'bZZZZZZ : vga_o[7:2];
-
 
 /////////////////////////  Audio output  ////////////////////////////////
 
-wire al, ar, aspdif;
+assign SDCD_SPDIF =(SW[3] & spdif) ? 1'b0 : 1'bZ;
 
-sigma_delta_dac #(15) dac_l
+`ifndef DUAL_SDRAM
+	wire anl,anr;
+
+	assign AUDIO_SPDIF = SW[3] ? 1'bZ : SW[0] ? HDMI_LRCLK : spdif;
+	assign AUDIO_R     = SW[3] ? 1'bZ : SW[0] ? HDMI_I2S   : anr;
+	assign AUDIO_L     = SW[3] ? 1'bZ : SW[0] ? HDMI_SCLK  : anl;
+`endif
+
+assign HDMI_MCLK = 0;
+
+wire [15:0] audio_l, audio_l_pre;
+aud_mix_top audmix_l
 (
-	.CLK(FPGA_CLK3_50),
-	.RESET(reset),
-	.DACin({audio_l[15] ^ audio_s, audio_l[14:0]}),
-	.DACout(al)
+	.clk(clk_audio),
+	.att(vol_att),
+	.mix(audio_mix),
+	.is_signed(audio_s),
+
+	.core_audio(audio_ls),
+	.pre_in(audio_r_pre),
+	.linux_audio(alsa_l),
+
+	.pre_out(audio_l_pre),
+	.out(audio_l)
 );
 
-sigma_delta_dac #(15) dac_r
+wire [15:0] audio_r, audio_r_pre;
+aud_mix_top audmix_r
 (
-	.CLK(FPGA_CLK3_50),
-	.RESET(reset),
-	.DACin({audio_r[15] ^ audio_s, audio_r[14:0]}),
-	.DACout(ar)
+	.clk(clk_audio),
+	.att(vol_att),
+	.mix(audio_mix),
+	.is_signed(audio_s),
+
+	.core_audio(audio_rs),
+	.pre_in(audio_l_pre),
+	.linux_audio(alsa_r),
+
+	.pre_out(audio_r_pre),
+	.out(audio_r)
 );
 
-spdif toslink
+wire spdif;
+audio_out audio_out
 (
-	.clk_i(FPGA_CLK3_50),
-
-	.rst_i(reset),
-	.half_rate(0),
-
-	.audio_l(audio_l >> !audio_s),
-	.audio_r(audio_r >> !audio_s),
-
-	.spdif_o(aspdif)
+	.reset(reset),
+	.clk(clk_audio),
+	.sample_rate(audio_96k),
+	.left_in(audio_l),
+	.right_in(audio_r),
+	.i2s_bclk(HDMI_SCLK),
+	.i2s_lrclk(HDMI_LRCLK),
+	.i2s_data(HDMI_I2S),
+`ifndef DUAL_SDRAM
+	.dac_l(anl),
+	.dac_r(anr),
+`endif
+	.spdif(spdif)
 );
 
-assign AUDIO_SPDIF = SW[0] ? HDMI_LRCLK : aspdif;
-assign AUDIO_R     = SW[0] ? HDMI_I2S   : ar;
-assign AUDIO_L     = SW[0] ? HDMI_SCLK  : al;
+wire [28:0] aram_address;
+wire  [7:0] aram_burstcount;
+wire        aram_waitrequest;
+wire [63:0] aram_readdata;
+wire        aram_readdatavalid;
+wire        aram_read;
 
-reg [15:0] audio_l; 
-reg [15:0] audio_r;
+wire [15:0] alsa_l, alsa_r;
 
-always @(posedge FPGA_CLK3_50) begin
-	reg signed [15:0] al;
-	reg signed [15:0] ar;
+alsa alsa
+(
+	.reset(reset),
+	.en_in(ap_en1),
+	.en_out(ap_en2),
 
-	case({audio_s,audio_mix})
-		'b000: al <= audio_ls;
-		'b001: al <= audio_ls - (audio_ls >> 3) + (audio_rs >> 3);
-		'b010: al <= audio_ls - (audio_ls >> 2) + (audio_rs >> 2);
-		'b011: al <= (audio_ls >> 1) + (audio_rs >> 1);
-		'b100: al <= audio_ls;
-		'b101: al <= audio_ls - (audio_ls >>> 3) + (audio_rs >>> 3);
-		'b110: al <= audio_ls - (audio_ls >>> 2) + (audio_rs >>> 2);
-		'b111: al <= (audio_ls >>> 1) + (audio_rs >>> 1);
-	endcase
+	.ram_clk(clk_audio),
+	.ram_address(aram_address),
+	.ram_burstcount(aram_burstcount),
+	.ram_waitrequest(aram_waitrequest),
+	.ram_readdata(aram_readdata),
+	.ram_readdatavalid(aram_readdatavalid),
+	.ram_read(aram_read),
 
-	case({audio_s,audio_mix})
-		'b000: ar <= audio_rs;
-		'b001: ar <= audio_rs - (audio_rs >> 3) + (audio_ls >> 3);
-		'b010: ar <= audio_rs - (audio_rs >> 2) + (audio_ls >> 2);
-		'b011: ar <= (audio_rs >> 1) + (audio_ls >> 1);
-		'b100: ar <= audio_rs;
-		'b101: ar <= audio_rs - (audio_rs >>> 3) + (audio_ls >>> 3);
-		'b110: ar <= audio_rs - (audio_rs >>> 2) + (audio_ls >>> 2);
-		'b111: ar <= (audio_rs >>> 1) + (audio_ls >>> 1);
-	endcase
-	
-	if(vol_att[4]) begin
-		audio_l <= 0;
-		audio_r <= 0;
-	end
-	else
-	if(audio_s) begin
-		audio_l <= al >>> vol_att[3:0];
-		audio_r <= ar >>> vol_att[3:0];
-	end
-	else
-	begin
-		audio_l <= al >> vol_att[3:0];
-		audio_r <= ar >> vol_att[3:0];
-	end
-end
+	.spi_ss(aspi_ss),
+	.spi_sck(aspi_sck),
+	.spi_mosi(aspi_mosi),
+
+	.pcm_l(alsa_l),
+	.pcm_r(alsa_r)
+);
+
+
+////////////////  User I/O (USB 3.0 connector) /////////////////////////
+
+assign USER_IO[0] =                       !user_out[0]  ? 1'b0 : 1'bZ;
+assign USER_IO[1] =                       !user_out[1]  ? 1'b0 : 1'bZ;
+assign USER_IO[2] = !(SW[1] ? HDMI_I2S   : user_out[2]) ? 1'b0 : 1'bZ;
+assign USER_IO[3] =                       !user_out[3]  ? 1'b0 : 1'bZ;
+assign USER_IO[4] = !(SW[1] ? HDMI_SCLK  : user_out[4]) ? 1'b0 : 1'bZ;
+assign USER_IO[5] = !(SW[1] ? HDMI_LRCLK : user_out[5]) ? 1'b0 : 1'bZ;
+
+assign user_in[0] =         USER_IO[0];
+assign user_in[1] =         USER_IO[1];
+assign user_in[2] = SW[1] | USER_IO[2];
+assign user_in[3] =         USER_IO[3];
+assign user_in[4] = SW[1] | USER_IO[4];
+assign user_in[5] = SW[1] | USER_IO[5];
+
 
 ///////////////////  User module connection ////////////////////////////
 
-wire signed [15:0] audio_ls, audio_rs;
+wire [15:0] audio_ls, audio_rs;
 wire        audio_s;
 wire  [1:0] audio_mix;
 wire  [7:0] r_out, g_out, b_out;
-wire        vs, hs, de;
+wire        vs, hs, de, f1;
+wire  [1:0] scanlines;
 wire        clk_sys, clk_vid, ce_pix;
 
 wire        ram_clk;
@@ -843,14 +997,24 @@ wire  [1:0] led_power;
 wire  [1:0] led_disk;
 
 wire vs_emu, hs_emu;
-sync_fix sync_v(FPGA_CLK3_50, vs_emu, vs);
-sync_fix sync_h(FPGA_CLK3_50, hs_emu, hs);
+sync_fix sync_v(clk_vid, vs_emu, vs);
+sync_fix sync_h(clk_vid, hs_emu, hs);
+
+wire        uart_dtr;
+wire        uart_dsr;
+wire        uart_cts;
+wire        uart_rts;
+wire        uart_rxd;
+wire        uart_txd;
+wire        osd_status;
+
+wire  [5:0] user_out, user_in;
 
 emu emu
 (
 	.CLK_50M(FPGA_CLK3_50),
 	.RESET(reset),
-	.HPS_BUS({HDMI_TX_VS, clk_ctl, clk_vid, ce_pix, de, hs, vs, io_wait, clk_sys, io_fpga, io_uio, io_strobe, io_wide, io_din, io_dout}),
+	.HPS_BUS({f1, HDMI_TX_VS, clk_100m, clk_vid, ce_pix, de, hs, vs, io_wait, clk_sys, io_fpga, io_uio, io_strobe, io_wide, io_din, io_dout}),
 
 	.CLK_VIDEO(clk_vid),
 	.CE_PIXEL(ce_pix),
@@ -861,33 +1025,22 @@ emu emu
 	.VGA_HS(hs_emu),
 	.VGA_VS(vs_emu),
 	.VGA_DE(de),
+	.VGA_F1(f1),
+	.VGA_SL(scanlines),
 
 	.LED_USER(led_user),
 	.LED_POWER(led_power),
 	.LED_DISK(led_disk),
 
-`ifndef LITE
 	.VIDEO_ARX(ARX),
 	.VIDEO_ARY(ARY),
-`endif
 
 	.AUDIO_L(audio_ls),
 	.AUDIO_R(audio_rs),
 	.AUDIO_S(audio_s),
 	.AUDIO_MIX(audio_mix),
-	.TAPE_IN(0),
 
-	// SCK  -> CLK
-	// MOSI -> CMD
-	// MISO <- DAT0
-	//    Z -> DAT1
-	//    Z -> DAT2
-	// CS   -> DAT3
-	.SD_SCK(SDIO_CLK),
-	.SD_MOSI(SDIO_CMD),
-	.SD_MISO(SDIO_DAT[0]),
-	.SD_CS(SDIO_DAT[3]),
-	.SD_CD(VGA_EN ? VGA_HS : SDIO_CD),
+	.ADC_BUS({ADC_SCK,ADC_SDO,ADC_SDI,ADC_CONVST}),
 
 	.DDRAM_CLK(ram_clk),
 	.DDRAM_ADDR(ram_address),
@@ -910,10 +1063,42 @@ emu emu
 	.SDRAM_nRAS(SDRAM_nRAS),
 	.SDRAM_nCAS(SDRAM_nCAS),
 	.SDRAM_CLK(SDRAM_CLK),
-	.SDRAM_CKE(SDRAM_CKE)
+	.SDRAM_CKE(SDRAM_CKE),
+
+`ifdef DUAL_SDRAM
+	.SDRAM2_DQ(SDRAM2_DQ),
+	.SDRAM2_A(SDRAM2_A),
+	.SDRAM2_BA(SDRAM2_BA),
+	.SDRAM2_nCS(SDRAM2_nCS),
+	.SDRAM2_nWE(SDRAM2_nWE),
+	.SDRAM2_nRAS(SDRAM2_nRAS),
+	.SDRAM2_nCAS(SDRAM2_nCAS),
+	.SDRAM2_CLK(SDRAM2_CLK),
+	.SDRAM2_EN(SW[3]),
+`else
+	.SD_SCK(SD_CLK),
+	.SD_MOSI(SD_MOSI),
+	.SD_MISO(SD_MISO),
+	.SD_CS(SD_CS),
+	.SD_CD(SW[0] ? VGA_HS : SW[3] ? 1'b1 : SDCD_SPDIF ),
+`endif
+
+	.UART_CTS(uart_rts),
+	.UART_RTS(uart_cts),
+	.UART_RXD(uart_txd),
+	.UART_TXD(uart_rxd),
+	.UART_DTR(uart_dsr),
+	.UART_DSR(uart_dtr),
+
+	.USER_OUT(user_out),
+	.USER_IN(user_in),
+
+	.OSD_STATUS(osd_status)
 );
 
 endmodule
+
+/////////////////////////////////////////////////////////////////////
 
 module sync_fix
 (
@@ -940,6 +1125,56 @@ always @(posedge clk) begin
 	if(s2 != s1) cnt <= 0;
 
 	pol <= pos > neg;
+end
+
+endmodule
+
+/////////////////////////////////////////////////////////////////////
+
+module aud_mix_top
+(
+	input             clk,
+
+	input       [4:0] att,
+	input       [1:0] mix,
+	input             is_signed,
+
+	input      [15:0] core_audio,
+	input      [15:0] linux_audio,
+	input      [15:0] pre_in,
+
+	output reg [15:0] pre_out,
+	output reg [15:0] out
+);
+
+reg [15:0] ca;
+always @(posedge clk) begin
+	reg [15:0] d1,d2,d3;
+
+	d1 <= core_audio; d2<=d1; d3<=d2;
+	if(d2 == d3) ca <= d2;
+end
+
+always @(posedge clk) begin
+	reg signed [16:0] a1, a2, a3, a4;
+
+	a1 <= is_signed ? {ca[15],ca} : {2'b00,ca[15:1]};
+	a2 <= a1 + {linux_audio[15],linux_audio};
+
+	pre_out <= a2[16:1];
+
+	case(mix)
+		0: a3 <= a2;
+		1: a3 <= $signed(a2) - $signed(a2[16:3]) + $signed(pre_in[15:2]);
+		2: a3 <= $signed(a2) - $signed(a2[16:2]) + $signed(pre_in[15:1]);
+		3: a3 <= {a2[16],a2[16:1]} + {pre_in[15],pre_in};
+	endcase
+
+	if(att[4]) a4 <= 0;
+	else a4 <= a3 >>> att[3:0];
+
+	//clamping
+	out <= ^a4[16:15] ? {a4[16],{15{a4[15]}}} : a4[15:0];
 end
 
 endmodule

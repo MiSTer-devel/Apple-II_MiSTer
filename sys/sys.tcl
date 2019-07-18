@@ -1,58 +1,8 @@
-# -------------------------------------------------------------------------- #
-#
-# Copyright (C) 2017  Intel Corporation. All rights reserved.
-# Your use of Intel Corporation's design tools, logic functions 
-# and other software and tools, and its AMPP partner logic 
-# functions, and any output files from any of the foregoing 
-# (including device programming or simulation files), and any 
-# associated documentation or information are expressly subject 
-# to the terms and conditions of the Intel Program License 
-# Subscription Agreement, the Intel Quartus Prime License Agreement,
-# the Intel MegaCore Function License Agreement, or other 
-# applicable license agreement, including, without limitation, 
-# that your use is for the sole purpose of programming logic 
-# devices manufactured by Intel and sold by Intel or its 
-# authorized distributors.  Please refer to the applicable 
-# agreement for further details.
-#
-# -------------------------------------------------------------------------- #
-#
-# Quartus Prime
-# Version 16.1.2 Build 203 01/18/2017 SJ Standard Edition
-# Date created = 01:53:32  April 20, 2017
-#
-# -------------------------------------------------------------------------- #
-
-set_global_assignment -name VERILOG_MACRO "LITE=1"
-
 set_global_assignment -name FAMILY "Cyclone V"
 set_global_assignment -name DEVICE 5CSEBA6U23I7
-set_global_assignment -name TOP_LEVEL_ENTITY sys_top
-set_global_assignment -name ORIGINAL_QUARTUS_VERSION 16.1.2
-set_global_assignment -name LAST_QUARTUS_VERSION "17.0.1 Standard Edition"
-set_global_assignment -name PROJECT_CREATION_TIME_DATE "01:53:30  APRIL 20, 2017"
 set_global_assignment -name DEVICE_FILTER_PACKAGE UFBGA
 set_global_assignment -name DEVICE_FILTER_PIN_COUNT 672
 set_global_assignment -name DEVICE_FILTER_SPEED_GRADE 7
-
-set_global_assignment -name GENERATE_RBF_FILE ON
-set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
-set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL
-set_global_assignment -name SAVE_DISK_SPACE OFF
-set_global_assignment -name SMART_RECOMPILE ON
-set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
-set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
-set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
-set_global_assignment -name MIN_CORE_JUNCTION_TEMP "-40"
-set_global_assignment -name MAX_CORE_JUNCTION_TEMP 100
-set_global_assignment -name POWER_PRESET_COOLING_SOLUTION "23 MM HEAT SINK WITH 200 LFPM AIRFLOW"
-set_global_assignment -name POWER_BOARD_THERMAL_MODEL "NONE (CONSERVATIVE)"
-set_global_assignment -name TIMEQUEST_MULTICORNER_ANALYSIS OFF
-set_global_assignment -name OPTIMIZE_POWER_DURING_FITTING OFF
-set_global_assignment -name FINAL_PLACEMENT_OPTIMIZATION ALWAYS
-set_global_assignment -name FITTER_EFFORT "STANDARD FIT"
-set_global_assignment -name OPTIMIZATION_MODE BALANCED
-set_global_assignment -name SEED 1
 
 #============================================================
 # ADC
@@ -69,92 +19,35 @@ set_location_assignment PIN_AD4 -to ADC_SDO
 #============================================================
 # ARDUINO
 #============================================================
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[3]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[4]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[5]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[6]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[7]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[8]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[9]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[10]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[11]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[12]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[13]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[14]
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[15]
 set_location_assignment PIN_AG9 -to ARDUINO_IO[3]
 set_location_assignment PIN_U14 -to ARDUINO_IO[4]
 set_location_assignment PIN_U13 -to ARDUINO_IO[5]
-set_location_assignment PIN_AG8 -to ARDUINO_IO[6]
-set_location_assignment PIN_AH8 -to ARDUINO_IO[7]
-set_location_assignment PIN_AF17 -to ARDUINO_IO[8]
-set_location_assignment PIN_AE15 -to ARDUINO_IO[9]
-set_location_assignment PIN_AF15 -to ARDUINO_IO[10]
-set_location_assignment PIN_AG16 -to ARDUINO_IO[11]
-set_location_assignment PIN_AH11 -to ARDUINO_IO[12]
-set_location_assignment PIN_AH12 -to ARDUINO_IO[13]
-set_location_assignment PIN_AH9 -to ARDUINO_IO[14]
-set_location_assignment PIN_AG11 -to ARDUINO_IO[15]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to ARDUINO_IO[*]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to ARDUINO_IO[*]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to ARDUINO_IO[*]
 
 #============================================================
-# SDIO
+# USER PORT
 #============================================================
-set_location_assignment PIN_AF25 -to SDIO_DAT[0]
-set_location_assignment PIN_AF23 -to SDIO_DAT[1]
-set_location_assignment PIN_AD26 -to SDIO_DAT[2]
-set_location_assignment PIN_AF28 -to SDIO_DAT[3]
-set_location_assignment PIN_AF27 -to SDIO_CMD
-set_location_assignment PIN_AH26 -to SDIO_CLK
-set_location_assignment PIN_AH7 -to SDIO_CD
-
-set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SDIO_*
-
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SDIO_*
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_DAT[*]
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_CMD
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDIO_CD
+set_location_assignment PIN_AF15 -to USER_IO[5]
+set_location_assignment PIN_AG16 -to USER_IO[4]
+set_location_assignment PIN_AH11 -to USER_IO[3]
+set_location_assignment PIN_AH12 -to USER_IO[2]
+set_location_assignment PIN_AH9 -to USER_IO[1]
+set_location_assignment PIN_AG11 -to USER_IO[0]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to USER_IO[*]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to USER_IO[*]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to USER_IO[*]
 
 #============================================================
-# VGA
+# SDIO_CD or SPDIF_OUT
 #============================================================
-set_location_assignment PIN_AE17 -to VGA_R[0]
-set_location_assignment PIN_AE20 -to VGA_R[1]
-set_location_assignment PIN_AF20 -to VGA_R[2]
-set_location_assignment PIN_AH18 -to VGA_R[3]
-set_location_assignment PIN_AH19 -to VGA_R[4]
-set_location_assignment PIN_AF21 -to VGA_R[5]
+set_location_assignment PIN_AH7 -to SDCD_SPDIF
 
-set_location_assignment PIN_AE19 -to VGA_G[0]
-set_location_assignment PIN_AG15 -to VGA_G[1]
-set_location_assignment PIN_AF18 -to VGA_G[2]
-set_location_assignment PIN_AG18 -to VGA_G[3]
-set_location_assignment PIN_AG19 -to VGA_G[4]
-set_location_assignment PIN_AG20 -to VGA_G[5]
+set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to SDCD_SPDIF
 
-set_location_assignment PIN_AG21 -to VGA_B[0]
-set_location_assignment PIN_AA20 -to VGA_B[1]
-set_location_assignment PIN_AE22 -to VGA_B[2]
-set_location_assignment PIN_AF22 -to VGA_B[3]
-set_location_assignment PIN_AH23 -to VGA_B[4]
-set_location_assignment PIN_AH21 -to VGA_B[5]
-
-set_location_assignment PIN_AH22 -to VGA_HS
-set_location_assignment PIN_AG24 -to VGA_VS
-
-set_location_assignment PIN_AH27 -to VGA_EN
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to VGA_EN
-
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to VGA_*
-set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to VGA_*
-
-#============================================================
-# AUDIO
-#============================================================
-set_location_assignment PIN_AC24 -to AUDIO_L
-set_location_assignment PIN_AE25 -to AUDIO_R
-set_location_assignment PIN_AG26 -to AUDIO_SPDIF
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to AUDIO_*
-set_instance_assignment -name CURRENT_STRENGTH_NEW 8MA -to AUDIO_*
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to SDCD_SPDIF
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SDCD_SPDIF
 
 #============================================================
 # SDRAM
@@ -213,19 +106,19 @@ set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to SDRAM_DQ[*]
 set_instance_assignment -name ALLOW_SYNCH_CTRL_USAGE OFF -to *|SDRAM_*
 
 #============================================================
-# I/O
+# I/O #2
 #============================================================
-set_location_assignment PIN_Y15 -to LED_USER
-set_location_assignment PIN_AA15 -to LED_HDD
-set_location_assignment PIN_AG28 -to LED_POWER
+set_location_assignment PIN_AG8 -to BTNLED[0]
+set_location_assignment PIN_AH8 -to BTNLED[1]
+set_location_assignment PIN_AF17 -to BTNLED[2]
+set_location_assignment PIN_AE15 -to BTNLED[3]
 
-set_location_assignment PIN_AH24 -to BTN_USER
-set_location_assignment PIN_AG25 -to BTN_OSD
-set_location_assignment PIN_AG23 -to BTN_RESET
+set_instance_assignment -name CURRENT_STRENGTH_NEW "MAXIMUM CURRENT" -to BTNLED[*]
+set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to BTNLED[*]
+set_instance_assignment -name FAST_OUTPUT_ENABLE_REGISTER ON -to BTNLED[*]
+set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to BTNLED[*]
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to  BTNLED[*]
 
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to LED_*
-set_instance_assignment -name IO_STANDARD "3.3-V LVTTL" -to BTN_*
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to BTN_*
 
 #============================================================
 # CLOCK
@@ -351,27 +244,11 @@ set_location_assignment PIN_W24 -to SW[1]
 set_location_assignment PIN_W21 -to SW[2]
 set_location_assignment PIN_W20 -to SW[3]
 
+set_instance_assignment -name HPS_LOCATION HPSINTERFACEPERIPHERALSPIMASTER_X52_Y72_N111 -entity sys_top -to spi
+set_instance_assignment -name HPS_LOCATION HPSINTERFACEPERIPHERALUART_X52_Y67_N111 -entity sys_top -to uart
+
 set_global_assignment -name PRE_FLOW_SCRIPT_FILE "quartus_sh:sys/build_id.tcl"
 
 set_global_assignment -name CDF_FILE jtag.cdf
 set_global_assignment -name QIP_FILE sys/sys.qip
-set_global_assignment -name VHDL_FILE mockingboard/YM2149_volmix.vhd
-set_global_assignment -name VHDL_FILE mockingboard/vol_table_array.vhd
-set_global_assignment -name VHDL_FILE mockingboard/mockingboard.vhd
-set_global_assignment -name VHDL_FILE mockingboard/m6522.vhd
-set_global_assignment -name VERILOG_FILE ramcard.v
-set_global_assignment -name VHDL_FILE spram.vhd
-set_global_assignment -name VHDL_FILE keyboard.vhd
-set_global_assignment -name VHDL_FILE timing_generator.vhd
-set_global_assignment -name VHDL_FILE character_rom.vhd
-set_global_assignment -name VHDL_FILE video_generator.vhd
-set_global_assignment -name VHDL_FILE cpu6502.vhd
-set_global_assignment -name VHDL_FILE apple2.vhd
-set_global_assignment -name VHDL_FILE disk_ii.vhd
-set_global_assignment -name VHDL_FILE disk_ii_rom.vhd
-set_global_assignment -name VHDL_FILE vga_controller.vhd
-set_global_assignment -name VHDL_FILE PS2_Ctrl.vhd
-set_global_assignment -name VHDL_FILE roms.vhd
-set_global_assignment -name VHDL_FILE apple2_top.vhd
-set_global_assignment -name SYSTEMVERILOG_FILE "Apple-II.sv"
-set_instance_assignment -name PARTITION_HIERARCHY root_partition -to | -section_id Top
+
