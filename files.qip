@@ -12,7 +12,6 @@ set_global_assignment -name VHDL_FILE apple2.vhd
 set_global_assignment -name VHDL_FILE disk_ii.vhd
 set_global_assignment -name VHDL_FILE disk_ii_rom.vhd
 set_global_assignment -name VHDL_FILE vga_controller.vhd
-set_global_assignment -name VHDL_FILE PS2_Ctrl.vhd
 set_global_assignment -name VHDL_FILE roms.vhd
 set_global_assignment -name VHDL_FILE apple2_top.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE "Apple-II.sv"

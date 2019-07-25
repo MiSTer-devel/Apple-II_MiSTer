@@ -13,8 +13,7 @@ use ieee.numeric_std.all;
 entity keyboard is
   
   port (
-    PS2_Clk  : in std_logic;            -- From PS/2 port
-    PS2_Data : in std_logic;            -- From PS/2 port
+    ps2_key  : in std_logic_vector(10 downto 0);
     CLK_14M  : in std_logic;
     reads    : in std_logic;            -- Read strobe
     reset    : in std_logic;
@@ -24,27 +23,23 @@ end keyboard;
 
 architecture rtl of keyboard is
 
-  signal code, latched_code : unsigned(7 downto 0);
+  signal stb                : std_logic;
+  signal code, latched_code : std_logic_vector(7 downto 0);
   signal code_available     : std_logic;  
   signal ascii              : unsigned(7 downto 0);  -- decoded
-  signal shifted_code       : unsigned(11 downto 0);
+  signal shifted_code       : std_logic_vector(11 downto 0);
   
   signal key_pressed        : std_logic;  -- Key pressed & not read
   signal ctrl, shift        : std_logic;
 
   -- Special PS/2 keyboard codes
-  constant KEY_UP_CODE      : unsigned(7 downto 0) := X"F0";
-  constant EXTENDED_CODE    : unsigned(7 downto 0) := X"E0";
-  constant LEFT_SHIFT       : unsigned(7 downto 0) := X"12";
-  constant RIGHT_SHIFT      : unsigned(7 downto 0) := X"59";
-  constant LEFT_CTRL        : unsigned(7 downto 0) := X"14";
+  constant LEFT_SHIFT       : std_logic_vector(7 downto 0) := X"12";
+  constant RIGHT_SHIFT      : std_logic_vector(7 downto 0) := X"59";
+  constant LEFT_CTRL        : std_logic_vector(7 downto 0) := X"14";
 
   type states is (IDLE,
                   HAVE_CODE,
                   DECODE,
-                  GOT_KEY_UP_CODE,
-                  GOT_KEY_UP2,
-                  GOT_KEY_UP3,
                   KEY_UP,
                   NORMAL_KEY
                   );
@@ -52,15 +47,6 @@ architecture rtl of keyboard is
   signal state, next_state : states;
 
 begin
-
-  ps2_controller : entity work.PS2_Ctrl port map (
-    Clk       => CLK_14M,
-    Reset     => reset,
-    PS2_Clk   => PS2_Clk,
-    PS2_Data  => PS2_Data,
-    DoRead    => code_available,
-    Scan_DAV  => code_available,
-    Scan_Code => code);
 
   K <= key_pressed & "00" & ascii(4 downto 0) when ctrl = '1' else
        key_pressed & ascii(6 downto 0);
@@ -94,14 +80,20 @@ begin
       latched_code <= (others => '0');
       key_pressed <= '0';
     elsif rising_edge(CLK_14M) then
+      code_available <= stb xor ps2_key(10);
       state <= next_state;
       if reads = '1' then key_pressed <= '0'; end if;
       if state = NORMAL_KEY then
         latched_code <= code ;
         key_pressed <= '1';
       end if;
+      if state = HAVE_CODE then
+        stb <= ps2_key(10);
+      end if;
     end if;
   end process fsm;
+  
+  code <= ps2_key(7 downto 0);
 
   fsm_next_state : process (code, code_available, state)
   begin
@@ -114,25 +106,12 @@ begin
         next_state <= DECODE;
         
       when DECODE =>
-        if code = KEY_UP_CODE then
-          next_state <= GOT_KEY_UP_CODE;
-        elsif code = EXTENDED_CODE then  -- Treat extended codes as normal
-          next_state <= IDLE;
+        if ps2_key(9) = '0' then
+          next_state <= KEY_UP;
         elsif code = LEFT_SHIFT or code = RIGHT_SHIFT or code = LEFT_CTRL then
           next_state <= IDLE;
         else
           next_state <= NORMAL_KEY;
-        end if;
-        
-      when GOT_KEY_UP_CODE =>
-        next_state <= GOT_KEY_UP2;
-        
-      when GOT_KEY_UP2 =>
-        next_state <= GOT_KEY_UP3;
-        
-      when GOT_KEY_UP3 =>
-        if code_available = '1' then
-          next_state <= KEY_UP;
         end if;
         
       when KEY_UP | NORMAL_KEY =>

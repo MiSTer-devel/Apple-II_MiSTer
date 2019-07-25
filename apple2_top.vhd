@@ -47,8 +47,7 @@ entity apple2_top is port
 	AUDIO_R 			: out std_logic_vector(7 downto 0);
 	SPEAKER 			: out std_logic;
 
-	ps2Clk     		: in std_logic;
-	ps2Data    		: in std_logic;
+	ps2_key   		: in std_logic_vector(10 downto 0);
 
 	joy        		: in std_logic_vector(5 downto 0);
 	joy_an     		: in std_logic_vector(15 downto 0);
@@ -222,8 +221,7 @@ begin
     );
 
   keyboard : entity work.keyboard port map (
-    PS2_Clk  => ps2Clk,
-    PS2_Data => ps2Data,
+    ps2_key  => ps2_key,
     CLK_14M  => CLK_14M,
     reset    => reset,
     reads     => read_key,
