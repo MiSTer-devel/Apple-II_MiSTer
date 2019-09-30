@@ -47,8 +47,7 @@ port (
 	b              : out std_logic_vector(7 downto 0);
 	SCREEN_MODE    : in  std_logic_vector(1 downto 0); -- 00: Color, 01: B&W, 10:Green, 11: Amber
 
-	PS2_Clk        : in  std_logic;
-	PS2_Data       : in  std_logic;
+	PS2_Key        : in  std_logic_vector(10 downto 0);
 	joy            : in  std_logic_vector(5 downto 0);
 	joy_an         : in  std_logic_vector(15 downto 0);
 
@@ -227,8 +226,7 @@ begin
     );
 
   keyboard : entity work.keyboard port map (
-    PS2_Clk  => PS2_Clk,
-    PS2_Data => PS2_Data,
+    PS2_Key  => PS2_Key,
     CLK_14M  => CLK_14M,
     reset    => reset,
     reads    => read_key,

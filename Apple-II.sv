@@ -183,9 +183,7 @@ wire  [5:0] joy = (joystick_0[5:0] | joystick_1[5:0]) & {2'b11, {4{~joya_en}}};
 wire [15:0] joya = joystick_a0 ? joystick_a0 : joystick_a1;
 wire        joya_en = |joya;
 
-
 wire [10:0] ps2_key;
-wire        kbd_clk, kbd_data;
 
 reg  [31:0] sd_lba;
 reg         sd_rd;
@@ -196,7 +194,7 @@ wire        sd_buff_wr;
 wire        img_mounted;
 wire [63:0] img_size;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3), .PS2DIV(1000)) hps_io
+hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -220,9 +218,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3), .PS2DIV(1000)) hps_io
 
 	.ioctl_wait(0),
 
-	//.ps2_key(ps2_key),
-	.ps2_kbd_clk_out(kbd_clk),
-	.ps2_kbd_data_out(kbd_data),
+	.ps2_key(ps2_key),
 
 	.joystick_0(joystick_0),
 	.joystick_1(joystick_1),
@@ -271,8 +267,7 @@ apple2_top apple2_top
 	.AUDIO_R(audio_r),
 	.TAPE_IN(0),
 
-	.ps2_clk(kbd_clk),
-	.ps2_data(kbd_data),
+	.ps2_key(ps2_key),
 
 	.joy(joy),
 	.joy_an(joya),

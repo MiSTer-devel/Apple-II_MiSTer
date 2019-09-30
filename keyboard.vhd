@@ -17,9 +17,8 @@ use ieee.numeric_std.all;
 entity keyboard is
 
   port (
-    PS2_Clk  : in std_logic;            -- From PS/2 port
-    PS2_Data : in std_logic;            -- From PS/2 port
     CLK_14M  : in std_logic;
+    PS2_Key  : in std_logic_vector(10 downto 0);  -- From PS/2 port
     reads    : in std_logic;            -- Read strobe
     reset    : in std_logic;
     akd      : buffer std_logic;        -- Any key down
@@ -38,12 +37,11 @@ architecture rtl of keyboard is
 
   signal key_pressed        : std_logic;  -- Key pressed & not read
   signal ctrl,shift,caplock : std_logic;
+  signal old_stb            : std_logic;
 
   signal rep_timer          : unsigned(22 downto 0);
 
   -- Special PS/2 keyboard codes
-  constant KEY_UP_CODE      : unsigned(7 downto 0) := X"F0";
-  constant EXTENDED_CODE    : unsigned(7 downto 0) := X"E0";
   constant LEFT_SHIFT       : unsigned(7 downto 0) := X"12";
   constant RIGHT_SHIFT      : unsigned(7 downto 0) := X"59";
   constant LEFT_CTRL        : unsigned(7 downto 0) := X"14";
@@ -52,10 +50,8 @@ architecture rtl of keyboard is
   type states is (IDLE,
                   HAVE_CODE,
                   DECODE,
-                  EXTENDED_KEY,
                   GOT_KEY_UP_CODE,
                   GOT_KEY_UP2,
-                  GOT_KEY_UP3,
                   KEY_UP,
                   NORMAL_KEY,
                   KEY_READY1,
@@ -74,15 +70,6 @@ begin
    data => (others=>'0'),
    wren => '0',
    unsigned(q) => rom_out);
-
-  ps2_controller : entity work.PS2_Ctrl port map (
-    Clk       => CLK_14M,
-    Reset     => reset,
-    PS2_Clk   => PS2_Clk,
-    PS2_Data  => PS2_Data,
-    DoRead    => code_available,
-    Scan_DAV  => code_available,
-    Scan_Code => code);
 
   K <= key_pressed & rom_out(6 downto 0);
 
@@ -119,23 +106,29 @@ begin
     end if;
   end process shift_ctrl;
 
+  process (CLK_14M)
+  begin
+    if rising_edge(CLK_14M) then
+		old_stb <= ps2_key(10);
+		code_available <= old_stb xor ps2_key(10);
+    end if;
+  end process;
+  
+  code <= unsigned(ps2_key(7 downto 0));
+  ext <= ps2_key(8);
+
   fsm : process (CLK_14M, reset)
   begin
     if reset = '1' then
       state <= IDLE;
       latched_code <= (others => '0');
-      ext <= '0';
       latched_ext <= '0';
       key_pressed <= '0';
     elsif rising_edge(CLK_14M) then
       state <= next_state;
       if reads = '1' then key_pressed <= '0'; end if;
       if state = GOT_KEY_UP_CODE then
-        ext <= '0';
         akd <= '0';
-      end if;
-      if state = EXTENDED_KEY then
-        ext <= '1';
       end if;
       if state = NORMAL_KEY then
         -- set up keyboard ROM read address
@@ -169,29 +162,19 @@ begin
         next_state <= DECODE;
 
       when DECODE =>
-        if code = KEY_UP_CODE then
+        if ps2_key(9) = '0' then
           next_state <= GOT_KEY_UP_CODE;
-        elsif code = EXTENDED_CODE then
-          next_state <= EXTENDED_KEY;
         elsif code = LEFT_SHIFT or code = RIGHT_SHIFT or code = LEFT_CTRL or code = CAPS_LOCK then
           next_state <= IDLE;
         else
           next_state <= NORMAL_KEY;
         end if;
 
-      when EXTENDED_KEY =>
-        next_state <= IDLE;
-
       when GOT_KEY_UP_CODE =>
         next_state <= GOT_KEY_UP2;
 
       when GOT_KEY_UP2 =>
-        next_state <= GOT_KEY_UP3;
-
-      when GOT_KEY_UP3 =>
-        if code_available = '1' then
-          next_state <= KEY_UP;
-        end if;
+        next_state <= KEY_UP;
 
       when KEY_UP =>
         next_state <= IDLE;
