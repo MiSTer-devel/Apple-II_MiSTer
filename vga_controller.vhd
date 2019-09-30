@@ -36,9 +36,8 @@ entity vga_controller is
 		HBL        : in std_logic;
 		VBL        : in std_logic;
 
-		VGA_CLK    : out std_logic;
-		VGA_HS     : out std_logic;             -- Active low
-		VGA_VS     : out std_logic;             -- Active low
+		VGA_HS     : out std_logic;
+		VGA_VS     : out std_logic;
 		VGA_HBL    : out std_logic;
 		VGA_VBL    : out std_logic;
 		VGA_R      : out unsigned(7 downto 0);
@@ -141,22 +140,22 @@ begin
 		elsif shift_reg(0) = shift_reg(4) and shift_reg(5) = shift_reg(1) then
 		 
 			-- Tint of adjacent pixels is consistent : display the color
-			if shift_reg(1) = '1' then
+			if shift_reg(3) = '1' then
 				r := r + basis_r(to_integer(hcount + 1));
 				g := g + basis_g(to_integer(hcount + 1));
 				b := b + basis_b(to_integer(hcount + 1));
 			end if;
-			if shift_reg(2) = '1' then
+			if shift_reg(4) = '1' then
 				r := r + basis_r(to_integer(hcount + 2));
 				g := g + basis_g(to_integer(hcount + 2));
 				b := b + basis_b(to_integer(hcount + 2));
 			end if;
-			if shift_reg(3) = '1' then
+			if shift_reg(1) = '1' then
 				r := r + basis_r(to_integer(hcount + 3));
 				g := g + basis_g(to_integer(hcount + 3));
 				b := b + basis_b(to_integer(hcount + 3));
 			end if;
-			if shift_reg(4) = '1' then
+			if shift_reg(2) = '1' then
 				r := r + basis_r(to_integer(hcount));
 				g := g + basis_g(to_integer(hcount));
 				b := b + basis_b(to_integer(hcount));
@@ -181,6 +180,5 @@ end process pixel_generator;
 
 VGA_VBL <= vbl_delayed;
 VGA_HBL <= de_delayed(17);
-VGA_CLK <= CLK_14M;
 
 end rtl;

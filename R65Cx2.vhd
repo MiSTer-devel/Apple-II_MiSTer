@@ -1,57 +1,36 @@
 -- -----------------------------------------------------------------------
 --
---                                 FPGA 64
---
---     A fully functional commodore 64 implementation in a single FPGA
---
--- -----------------------------------------------------------------------
---
--- Table driven, cycle exact 6502/6510 core
+-- This is a table driven 65Cx2 core by A.Daly 
+-- This is a derivative of the excellent FPGA64 core see below
 --
 -- -----------------------------------------------------------------------
---
--- cpu65xx_fast.vhdl, part of FPGA-64, is made available strictly for personal
--- educational purposes. Distributed with apple2fgpa with permission.
---
--- Copyright 2005-2008 by Peter Wendrich (pwsoft@syntiac.com).
--- All rights reserved.
+-- Copyright 2005-2008 by Peter Wendrich (pwsoft@syntiac.com)
 -- http://www.syntiac.com/fpga64.html
---
 -- -----------------------------------------------------------------------
+
 
 library IEEE;
 use ieee.std_logic_1164.ALL;
 use ieee.numeric_std.ALL;
 
-entity cpu65xx is
-	generic (
-		pipelineOpcode : boolean;
-		pipelineAluMux : boolean;
-		pipelineAluOut : boolean
-	);
+entity R65C02 is
 	port (
+		
+		reset : in std_logic;
 		clk : in std_logic;
 		enable : in std_logic;
-		reset : in std_logic;
 		nmi_n : in std_logic;
 		irq_n : in std_logic;
-		so_n : in std_logic := '1';
-
 		di : in unsigned(7 downto 0);
 		do : out unsigned(7 downto 0);
 		addr : out unsigned(15 downto 0);
-		we : out std_logic;
-		
-		debugOpcode : out unsigned(7 downto 0);
-		debugPc : out unsigned(15 downto 0);
-		debugA : out unsigned(7 downto 0);
-		debugX : out unsigned(7 downto 0);
-		debugY : out unsigned(7 downto 0);
-		debugS : out unsigned(7 downto 0)
+		nwe : out std_logic;
+		sync : out std_logic;
+		sync_irq : out std_logic;
+        -- 6502 registers (MSB) PC, SP, P, Y, X, A (LSB)
+        Regs    : out std_logic_vector(63 downto 0)
 	);
-end cpu65xx;
-
--- -----------------------------------------------------------------------
+end R65C02;
 
 -- Store Zp    (3) => fetch, cycle2, cycleEnd
 -- Store Zp,x  (4) => fetch, cycle2, preWrite, cycleEnd
@@ -67,8 +46,13 @@ end cpu65xx;
 -- Brk / irq   (6) => fetch, cycle2, stack2, stack3, stack4
 -- -----------------------------------------------------------------------
 
-architecture fast of cpu65xx is
+architecture Behavioral of R65C02 is
+
+--	signal counter : unsigned(27 downto 0);
+--	signal mask_irq : std_logic;
+--	signal mask_enable : std_logic;
 -- Statemachine
+
 	type cpuCycles is (
 		opcodeFetch,  -- New opcode is read and registers updated
 		cycle2,
@@ -128,17 +112,20 @@ architecture fast of cpu65xx is
 	constant opcRti        : integer := 24;
 	constant opcIRQ        : integer := 25;
 
+	
 	constant opcInA        : integer := 26;
-	constant opcInE        : integer := 27;
+	constant opcInBrk      : integer := 27;
 	constant opcInX        : integer := 28;
 	constant opcInY        : integer := 29;
 	constant opcInS        : integer := 30;
 	constant opcInT        : integer := 31;
 	constant opcInH        : integer := 32;
 	constant opcInClear    : integer := 33;
+	
 	constant aluMode1From  : integer := 34;
 	--
 	constant aluMode1To    : integer := 37;
+	
 	constant aluMode2From  : integer := 38;
 	--
 	constant aluMode2To    : integer := 40;
@@ -185,6 +172,9 @@ architecture fast of cpu65xx is
 	constant readIndY  : addrDef := "1001000001000000";
 	constant writeIndY : addrDef := "1001000001010000";
 	constant rmwIndY   : addrDef := "1001000001001000";
+	constant rmwInd    : addrDef := "1001000000001000";
+	constant readInd   : addrDef := "1001000000000000";
+	constant writeInd  : addrDef := "1001000000010000";
 	--                               |AZI||JBXY|WM||
 	-- Absolute
 	constant readAbs   : addrDef := "1100000000000000";	
@@ -204,16 +194,17 @@ architecture fast of cpu65xx is
 	constant jsr       : addrDef := "1000101000000000";
 	constant jumpAbs   : addrDef := "1000001000000000";
 	constant jumpInd   : addrDef := "1100001000000000";
+	constant jumpIndX  : addrDef := "1100001010000000";
 	constant relative  : addrDef := "1000000100000000";
 	-- Specials
 	constant rts       : addrDef := "0000101000100100";
 	constant rti       : addrDef := "0000111000100010";
 	constant brk       : addrDef := "1000111000000001";
+--	constant irq       : addrDef := "0000111000000001";
 --	constant        : unsigned(0 to 0) := "0";
 	constant xxxxxxxx  : addrDef := "----------0---00";
 	
 	-- A = accu
-	-- E = Accu | 0xEE (for ANE, LXA)
 	-- X = index X
 	-- Y = index Y
 	-- S = Stack pointer
@@ -221,22 +212,13 @@ architecture fast of cpu65xx is
 	-- 
 	--                                       AEXYSTHc
 	constant aluInA   : unsigned(0 to 7) := "10000000";
-	constant aluInE   : unsigned(0 to 7) := "01000000";
-	constant aluInEXT : unsigned(0 to 7) := "01100100";
-	constant aluInET  : unsigned(0 to 7) := "01000100";
+	constant aluInBrk : unsigned(0 to 7) := "01000000";
 	constant aluInX   : unsigned(0 to 7) := "00100000";
-	constant aluInXH  : unsigned(0 to 7) := "00100010";
 	constant aluInY   : unsigned(0 to 7) := "00010000";
-	constant aluInYH  : unsigned(0 to 7) := "00010010";
 	constant aluInS   : unsigned(0 to 7) := "00001000";
 	constant aluInT   : unsigned(0 to 7) := "00000100";
-	constant aluInAX  : unsigned(0 to 7) := "10100000";
-	constant aluInAXH : unsigned(0 to 7) := "10100010";
-	constant aluInAT  : unsigned(0 to 7) := "10000100";
-	constant aluInXT  : unsigned(0 to 7) := "00100100";
-	constant aluInST  : unsigned(0 to 7) := "00001100";
-	constant aluInSet : unsigned(0 to 7) := "00000000";
 	constant aluInClr : unsigned(0 to 7) := "00000001";
+	constant aluInSet : unsigned(0 to 7) := "00000000";
 	constant aluInXXX : unsigned(0 to 7) := "--------";
 	
 	-- Most of the aluModes are just like the opcodes.
@@ -263,10 +245,10 @@ architecture fast of cpu65xx is
 	constant aluModeRor : aluMode1 := "1001";
 	constant aluModeAsl : aluMode1 := "1010";
 	constant aluModeRol : aluMode1 := "1011";
-	-- 1100
-	-- 1101
+	constant aluModeTSB : aluMode1 := "1100";
+	constant aluModeTRB : aluMode1 := "1101";
 	-- 1110
-	constant aluModeAnc : aluMode1 := "1111";
+	-- 1111;
 
 	-- Arithmetic ALU
 	constant aluModePss : aluMode2 := "000";
@@ -276,9 +258,10 @@ architecture fast of cpu65xx is
 	constant aluModeAnd : aluMode2 := "100";
 	constant aluModeOra : aluMode2 := "101";
 	constant aluModeEor : aluMode2 := "110";
-	constant aluModeArr : aluMode2 := "111";
-
-
+   constant aluModeNoF : aluMode2 := "111";
+	--aluModeBRK
+	--constant aluBrk  : aluMode := aluModeBRK & aluModePss & "---";
+	--constant aluFix  : aluMode := aluModeInp & aluModeNoF & "---";
 	constant aluInp  : aluMode := aluModeInp & aluModePss & "---";
 	constant aluP    : aluMode := aluModeP   & aluModePss & "---";
 	constant aluInc  : aluMode := aluModeInc & aluModePss & "---";
@@ -288,8 +271,9 @@ architecture fast of cpu65xx is
 	constant aluRor  : aluMode := aluModeRor & aluModePss & "---";
 	constant aluLsr  : aluMode := aluModeLsr & aluModePss & "---";
 	constant aluRol  : aluMode := aluModeRol & aluModePss & "---";
-	constant aluAsl  : aluMode := aluModeAsl & aluModePss & "---";
-
+	constant aluAsl  : aluMode := aluModeAsl & aluModePss & "---"; 
+   constant aluTSB  : aluMode := aluModeTSB & aluModePss & "---";
+	constant aluTRB  : aluMode := aluModeTRB & aluModePss & "---";
 	constant aluCmp  : aluMode := aluModeInp & aluModeCmp & "100";
 	constant aluCpx  : aluMode := aluModeInp & aluModeCmp & "010";
 	constant aluCpy  : aluMode := aluModeInp & aluModeCmp & "001";
@@ -298,16 +282,6 @@ architecture fast of cpu65xx is
 	constant aluAnd  : aluMode := aluModeInp & aluModeAnd & "---";
 	constant aluOra  : aluMode := aluModeInp & aluModeOra & "---";
 	constant aluEor  : aluMode := aluModeInp & aluModeEor & "---";
-	
-	constant aluSlo  : aluMode := aluModeAsl & aluModeOra & "---";
-	constant aluSre  : aluMode := aluModeLsr & aluModeEor & "---";
-	constant aluRra  : aluMode := aluModeRor & aluModeAdc & "---";
-	constant aluRla  : aluMode := aluModeRol & aluModeAnd & "---";
-	constant aluDcp  : aluMode := aluModeDec & aluModeCmp & "100";
-	constant aluIsc  : aluMode := aluModeInc & aluModeSbc & "---";
-	constant aluAnc  : aluMode := aluModeAnc & aluModeAnd & "---";
-	constant aluArr  : aluMode := aluModeRor & aluModeArr & "---";
-	constant aluSbx  : aluMode := aluModeInp & aluModeCmp & "110";
 	
 	constant aluXXX  : aluMode := (others => '-');
 
@@ -329,269 +303,271 @@ architecture fast of cpu65xx is
 	-- ||||      _|__ 
 	-- ||||     /    \
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
-	  "0000" & "000100" & brk       & aluInXXX & aluP,   -- 00 BRK
+	-- AXYS     NVDIZC    addressing  aluInput  aluMode  
+	  "0000" & "001100" & brk       & aluInBrk & aluP,   -- 00 BRK
 	  "1000" & "100010" & readIndX  & aluInT   & aluOra, -- 01 ORA (zp,x)
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 02 *** JAM ***
-	  "1000" & "100011" & rmwIndX   & aluInT   & aluSlo, -- 03 iSLO (zp,x)
-	  "0000" & "000000" & readZp    & aluInXXX & aluXXX, -- 04 iNOP zp
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 02 NOP ------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 03 NOP ------- 65C02
+	  "0000" & "000010" & rmwZp     & aluInT   & aluTSB, -- 04 TSB zp ----------- 65C02
 	  "1000" & "100010" & readZp    & aluInT   & aluOra, -- 05 ORA zp
 	  "0000" & "100011" & rmwZp     & aluInT   & aluAsl, -- 06 ASL zp
-	  "1000" & "100011" & rmwZp     & aluInT   & aluSlo, -- 07 iSLO zp
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 07 NOP ------- 65C02
 	  "0000" & "000000" & push      & aluInXXX & aluP,   -- 08 PHP
 	  "1000" & "100010" & immediate & aluInT   & aluOra, -- 09 ORA imm
 	  "1000" & "100011" & implied   & aluInA   & aluAsl, -- 0A ASL accu
-	  "1000" & "100011" & immediate & aluInT   & aluAnc, -- 0B iANC imm
-	  "0000" & "000000" & readAbs   & aluInXXX & aluXXX, -- 0C iNOP abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 0B NOP ------- 65C02
+	  "0000" & "000010" & rmwAbs    & aluInT   & aluTSB, -- 0C TSB abs ---------- 65C02
 	  "1000" & "100010" & readAbs   & aluInT   & aluOra, -- 0D ORA abs
 	  "0000" & "100011" & rmwAbs    & aluInT   & aluAsl, -- 0E ASL abs
-	  "1000" & "100011" & rmwAbs    & aluInT   & aluSlo, -- 0F iSLO abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 0F NOP ------- 65C02
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- 10 BPL
 	  "1000" & "100010" & readIndY  & aluInT   & aluOra, -- 11 ORA (zp),y
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 12 *** JAM ***
-	  "1000" & "100011" & rmwIndY   & aluInT   & aluSlo, -- 13 iSLO (zp),y
-	  "0000" & "000000" & readZpX   & aluInXXX & aluXXX, -- 14 iNOP zp,x
+	  "1000" & "100010" & readInd   & aluInT   & aluOra, -- 12 ORA (zp) --------- 65C02  
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 13 NOP ------- 65C02
+	  "0000" & "000010" & rmwZp     & aluInT   & aluTRB, -- 14 TRB zp ~---------- 65C02 
 	  "1000" & "100010" & readZpX   & aluInT   & aluOra, -- 15 ORA zp,x
 	  "0000" & "100011" & rmwZpX    & aluInT   & aluAsl, -- 16 ASL zp,x
-	  "1000" & "100011" & rmwZpX    & aluInT   & aluSlo, -- 17 iSLO zp,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 17 NOP ------- 65C02
 	  "0000" & "000001" & implied   & aluInClr & aluFlg, -- 18 CLC
 	  "1000" & "100010" & readAbsY  & aluInT   & aluOra, -- 19 ORA abs,y
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 1A iNOP implied
-	  "1000" & "100011" & rmwAbsY   & aluInT   & aluSlo, -- 1B iSLO abs,y
-	  "0000" & "000000" & readAbsX  & aluInXXX & aluXXX, -- 1C iNOP abs,x
+	  "1000" & "100010" & implied   & aluInA   & aluInc, -- 1A INC accu --------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 1B NOP ------- 65C02
+	  "0000" & "000010" & rmwAbs    & aluInT   & aluTRB, -- 1C TRB abs ~----- --- 65C02 
 	  "1000" & "100010" & readAbsX  & aluInT   & aluOra, -- 1D ORA abs,x
 	  "0000" & "100011" & rmwAbsX   & aluInT   & aluAsl, -- 1E ASL abs,x
-	  "1000" & "100011" & rmwAbsX   & aluInT   & aluSlo, -- 1F iSLO abs,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 1F NOP ------- 65C02
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "000000" & jsr       & aluInXXX & aluXXX, -- 20 JSR
 	  "1000" & "100010" & readIndX  & aluInT   & aluAnd, -- 21 AND (zp,x)
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 22 *** JAM ***
-	  "1000" & "100011" & rmwIndX   & aluInT   & aluRla, -- 23 iRLA (zp,x)
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 22 NOP ------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 23 NOP ------- 65C02
 	  "0000" & "110010" & readZp    & aluInT   & aluBit, -- 24 BIT zp
 	  "1000" & "100010" & readZp    & aluInT   & aluAnd, -- 25 AND zp
 	  "0000" & "100011" & rmwZp     & aluInT   & aluRol, -- 26 ROL zp
-	  "1000" & "100011" & rmwZp     & aluInT   & aluRla, -- 27 iRLA zp
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 27 NOP ------- 65C02
 	  "0000" & "111111" & pop       & aluInT   & aluFlg, -- 28 PLP
 	  "1000" & "100010" & immediate & aluInT   & aluAnd, -- 29 AND imm
 	  "1000" & "100011" & implied   & aluInA   & aluRol, -- 2A ROL accu
-	  "1000" & "100011" & immediate & aluInT   & aluAnc, -- 2B iANC imm
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 2B NOP ------- 65C02
 	  "0000" & "110010" & readAbs   & aluInT   & aluBit, -- 2C BIT abs
 	  "1000" & "100010" & readAbs   & aluInT   & aluAnd, -- 2D AND abs
 	  "0000" & "100011" & rmwAbs    & aluInT   & aluRol, -- 2E ROL abs
-	  "1000" & "100011" & rmwAbs    & aluInT   & aluRla, -- 2F iRLA abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 2F NOP ------- 65C02
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- 30 BMI
 	  "1000" & "100010" & readIndY  & aluInT   & aluAnd, -- 31 AND (zp),y
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 32 *** JAM ***
-	  "1000" & "100011" & rmwIndY   & aluInT   & aluRla, -- 33 iRLA (zp),y
-	  "0000" & "000000" & readZpX   & aluInXXX & aluXXX, -- 34 iNOP zp,x
+	  "1000" & "100010" & readInd   & aluInT   & aluAnd, -- 32 AND (zp) -------- 65C02 
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 33 NOP ------- 65C02
+	  "0000" & "110010" & readZpX   & aluInT   & aluBit, -- 34 BIT zp,x -------- 65C02
 	  "1000" & "100010" & readZpX   & aluInT   & aluAnd, -- 35 AND zp,x
 	  "0000" & "100011" & rmwZpX    & aluInT   & aluRol, -- 36 ROL zp,x
-	  "1000" & "100011" & rmwZpX    & aluInT   & aluRla, -- 37 iRLA zp,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 37 NOP ------- 65C02
 	  "0000" & "000001" & implied   & aluInSet & aluFlg, -- 38 SEC
 	  "1000" & "100010" & readAbsY  & aluInT   & aluAnd, -- 39 AND abs,y
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 3A iNOP implied
-	  "1000" & "100011" & rmwAbsY   & aluInT   & aluRla, -- 3B iRLA abs,y
-	  "0000" & "000000" & readAbsX  & aluInXXX & aluXXX, -- 3C iNOP abs,x
+	  "1000" & "100010" & implied   & aluInA   & aluDec, -- 3A DEC accu -------- 65C12
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 3B NOP ------- 65C02
+	  "0000" & "110010" & readAbsX  & aluInT   & aluBit, -- 3C BIT abs,x ------- 65C02
 	  "1000" & "100010" & readAbsX  & aluInT   & aluAnd, -- 3D AND abs,x
 	  "0000" & "100011" & rmwAbsX   & aluInT   & aluRol, -- 3E ROL abs,x
-	  "1000" & "100011" & rmwAbsX   & aluInT   & aluRla, -- 3F iRLA abs,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 3F NOP ------- 65C02
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "111111" & rti       & aluInT   & aluFlg, -- 40 RTI
 	  "1000" & "100010" & readIndX  & aluInT   & aluEor, -- 41 EOR (zp,x)
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 42 *** JAM ***
-	  "1000" & "100011" & rmwIndX   & aluInT   & aluSre, -- 43 iSRE (zp,x)
-	  "0000" & "000000" & readZp    & aluInXXX & aluXXX, -- 44 iNOP zp
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 42 NOP ------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 43 NOP ------- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 44 NOP ------- 65C02
 	  "1000" & "100010" & readZp    & aluInT   & aluEor, -- 45 EOR zp
 	  "0000" & "100011" & rmwZp     & aluInT   & aluLsr, -- 46 LSR zp
-	  "1000" & "100011" & rmwZp     & aluInT   & aluSre, -- 47 iSRE zp
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 47 NOP ------- 65C02
 	  "0000" & "000000" & push      & aluInA   & aluInp, -- 48 PHA
 	  "1000" & "100010" & immediate & aluInT   & aluEor, -- 49 EOR imm
-	  "1000" & "100011" & implied   & aluInA   & aluLsr, -- 4A LSR accu
-	  "1000" & "100011" & immediate & aluInAT  & aluLsr, -- 4B iALR imm
+	  "1000" & "100011" & implied   & aluInA   & aluLsr, -- 4A LSR accu -------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 4B NOP ------- 65C02
 	  "0000" & "000000" & jumpAbs   & aluInXXX & aluXXX, -- 4C JMP abs
 	  "1000" & "100010" & readAbs   & aluInT   & aluEor, -- 4D EOR abs
 	  "0000" & "100011" & rmwAbs    & aluInT   & aluLsr, -- 4E LSR abs
-	  "1000" & "100011" & rmwAbs    & aluInT   & aluSre, -- 4F iSRE abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 4F NOP ------- 65C02
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- 50 BVC
 	  "1000" & "100010" & readIndY  & aluInT   & aluEor, -- 51 EOR (zp),y
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 52 *** JAM ***
-	  "1000" & "100011" & rmwIndY   & aluInT   & aluSre, -- 53 iSRE (zp),y
-	  "0000" & "000000" & readZpX   & aluInXXX & aluXXX, -- 54 iNOP zp,x
+	  "1000" & "100010" & readInd   & aluInT   & aluEor, -- 52 EOR (zp) -------- 65C02 
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 53 NOP ------- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 54 NOP ------- 65C02
 	  "1000" & "100010" & readZpX   & aluInT   & aluEor, -- 55 EOR zp,x
 	  "0000" & "100011" & rmwZpX    & aluInT   & aluLsr, -- 56 LSR zp,x
-	  "1000" & "100011" & rmwZpX    & aluInT   & aluSre, -- 57 SRE zp,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 57 NOP ------- 65C02
 	  "0000" & "000100" & implied   & aluInClr & aluXXX, -- 58 CLI
 	  "1000" & "100010" & readAbsY  & aluInT   & aluEor, -- 59 EOR abs,y
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 5A iNOP implied
-	  "1000" & "100011" & rmwAbsY   & aluInT   & aluSre, -- 5B iSRE abs,y
-	  "0000" & "000000" & readAbsX  & aluInXXX & aluXXX, -- 5C iNOP abs,x
+	  "0000" & "000000" & push      & aluInY   & aluInp, -- 5A PHY ------------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 5B NOP ------- 65C02
+	  "0000" & "000000" & readAbs   & aluInXXX & aluXXX, -- 5C NOP ------- 65C02
 	  "1000" & "100010" & readAbsX  & aluInT   & aluEor, -- 5D EOR abs,x
 	  "0000" & "100011" & rmwAbsX   & aluInT   & aluLsr, -- 5E LSR abs,x
-	  "1000" & "100011" & rmwAbsX   & aluInT   & aluSre, -- 5F SRE abs,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 5F NOP ------- 65C02
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "000000" & rts       & aluInXXX & aluXXX, -- 60 RTS
 	  "1000" & "110011" & readIndX  & aluInT   & aluAdc, -- 61 ADC (zp,x)
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 62 *** JAM ***
-	  "1000" & "110011" & rmwIndX   & aluInT   & aluRra, -- 63 iRRA (zp,x)
-	  "0000" & "000000" & readZp    & aluInXXX & aluXXX, -- 64 iNOP zp
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 62 NOP ------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 63 NOP ------- 65C02
+	  "0000" & "000000" & writeZp   & aluInClr & aluInp, -- 64 STZ zp ---------- 65C02
 	  "1000" & "110011" & readZp    & aluInT   & aluAdc, -- 65 ADC zp
 	  "0000" & "100011" & rmwZp     & aluInT   & aluRor, -- 66 ROR zp
-	  "1000" & "110011" & rmwZp     & aluInT   & aluRra, -- 67 iRRA zp
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 67 NOP ------- 65C02
 	  "1000" & "100010" & pop       & aluInT   & aluInp, -- 68 PLA
 	  "1000" & "110011" & immediate & aluInT   & aluAdc, -- 69 ADC imm
 	  "1000" & "100011" & implied   & aluInA   & aluRor, -- 6A ROR accu
-	  "1000" & "110011" & immediate & aluInAT  & aluArr, -- 6B iARR imm
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 6B NOP ------ 65C02
 	  "0000" & "000000" & jumpInd   & aluInXXX & aluXXX, -- 6C JMP indirect
 	  "1000" & "110011" & readAbs   & aluInT   & aluAdc, -- 6D ADC abs
 	  "0000" & "100011" & rmwAbs    & aluInT   & aluRor, -- 6E ROR abs
-	  "1000" & "110011" & rmwAbs    & aluInT   & aluRra, -- 6F iRRA abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 6F NOP ------ 65C02
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- 70 BVS
 	  "1000" & "110011" & readIndY  & aluInT   & aluAdc, -- 71 ADC (zp),y
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 72 *** JAM ***
-	  "1000" & "110011" & rmwIndY   & aluInT   & aluRra, -- 73 iRRA (zp),y
-	  "0000" & "000000" & readZpX   & aluInXXX & aluXXX, -- 74 iNOP zp,x
+	  "1000" & "110011" & readInd   & aluInT   & aluAdc, -- 72 ADC (zp) -------- 65C02 
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 73 NOP ------ 65C02
+	  "0000" & "000000" & writeZpX  & aluInClr & aluInp, -- 74 STZ zp,x -------- 65C02
 	  "1000" & "110011" & readZpX   & aluInT   & aluAdc, -- 75 ADC zp,x
 	  "0000" & "100011" & rmwZpX    & aluInT   & aluRor, -- 76 ROR zp,x
-	  "1000" & "110011" & rmwZpX    & aluInT   & aluRra, -- 77 iRRA zp,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 77 NOP ----- 65C02
 	  "0000" & "000100" & implied   & aluInSet & aluXXX, -- 78 SEI
 	  "1000" & "110011" & readAbsY  & aluInT   & aluAdc, -- 79 ADC abs,y
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 7A iNOP implied
-	  "1000" & "110011" & rmwAbsY   & aluInT   & aluRra, -- 7B iRRA abs,y
-	  "0000" & "000000" & readAbsX  & aluInXXX & aluXXX, -- 7C iNOP abs,x
+	  "0010" & "100010" & pop       & aluInT   & aluInp, -- 7A PLY ------------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 7B NOP ----- 65C02
+	  "0000" & "000000" & jumpIndX  & aluInXXX & aluXXX, -- 7C JMP indirect,x -- 65C02
+	  --"0000" & "000000" & jumpInd   & aluInXXX & aluXXX, -- 6C JMP indirect
 	  "1000" & "110011" & readAbsX  & aluInT   & aluAdc, -- 7D ADC abs,x
 	  "0000" & "100011" & rmwAbsX   & aluInT   & aluRor, -- 7E ROR abs,x
-	  "1000" & "110011" & rmwAbsX   & aluInT   & aluRra, -- 7F iRRA abs,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 7F NOP ----- 65C02
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
-	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 80 iNOP imm
+	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- 80 BRA ----------- 65C02
 	  "0000" & "000000" & writeIndX & aluInA   & aluInp, -- 81 STA (zp,x)
-	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 82 iNOP imm
-	  "0000" & "000000" & writeIndX & aluInAX  & aluInp, -- 83 iSAX (zp,x)
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 82 NOP ----- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 83 NOP ----- 65C02
 	  "0000" & "000000" & writeZp   & aluInY   & aluInp, -- 84 STY zp
 	  "0000" & "000000" & writeZp   & aluInA   & aluInp, -- 85 STA zp
 	  "0000" & "000000" & writeZp   & aluInX   & aluInp, -- 86 STX zp
-	  "0000" & "000000" & writeZp   & aluInAX  & aluInp, -- 87 iSAX zp
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 87 NOP ----- 65C02
 	  "0010" & "100010" & implied   & aluInY   & aluDec, -- 88 DEY
-	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- 84 iNOP imm
+	  "0000" & "000010" & immediate & aluInT   & aluBit, -- 89 BIT imm ------- 65C02
 	  "1000" & "100010" & implied   & aluInX   & aluInp, -- 8A TXA
-	  "1000" & "100010" & immediate & aluInEXT & aluInp, -- 8B iANE imm
-	  "0000" & "000000" & writeAbs  & aluInY   & aluInp, -- 8C STY abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 8B NOP ----- 65C02
+	  "0000" & "000000" & writeAbs  & aluInY   & aluInp, -- 8C STY abs ------- 65C02
 	  "0000" & "000000" & writeAbs  & aluInA   & aluInp, -- 8D STA abs
 	  "0000" & "000000" & writeAbs  & aluInX   & aluInp, -- 8E STX abs
-	  "0000" & "000000" & writeAbs  & aluInAX  & aluInp, -- 8F iSAX abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 8F NOP ----- 65C02
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- 90 BCC
 	  "0000" & "000000" & writeIndY & aluInA   & aluInp, -- 91 STA (zp),y
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- 92 *** JAM ***
-	  "0000" & "000000" & writeIndY & aluInAXH & aluInp, -- 93 iAHX (zp),y
+	  "0000" & "000000" & writeInd  & aluInA   & aluInp, -- 92 STA (zp) ------ 65C02 
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 93 NOP ----- 65C02
 	  "0000" & "000000" & writeZpX  & aluInY   & aluInp, -- 94 STY zp,x
 	  "0000" & "000000" & writeZpX  & aluInA   & aluInp, -- 95 STA zp,x
 	  "0000" & "000000" & writeZpY  & aluInX   & aluInp, -- 96 STX zp,y
-	  "0000" & "000000" & writeZpY  & aluInAX  & aluInp, -- 97 iSAX zp,y
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 97 NOP ----- 65C02
 	  "1000" & "100010" & implied   & aluInY   & aluInp, -- 98 TYA
 	  "0000" & "000000" & writeAbsY & aluInA   & aluInp, -- 99 STA abs,y
 	  "0001" & "000000" & implied   & aluInX   & aluInp, -- 9A TXS
-	  "0001" & "000000" & writeAbsY & aluInAXH & aluInp, -- 9B iSHS abs,y
-	  "0000" & "000000" & writeAbsX & aluInYH  & aluInp, -- 9C iSHY abs,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 9B NOP ----- 65C02
+	  "0000" & "000000" & writeAbs  & aluInClr & aluInp, -- 9C STZ Abs ------- 65C02
 	  "0000" & "000000" & writeAbsX & aluInA   & aluInp, -- 9D STA abs,x
-	  "0000" & "000000" & writeAbsY & aluInXH  & aluInp, -- 9E iSHX abs,y
-	  "0000" & "000000" & writeAbsY & aluInAXH & aluInp, -- 9F iAHX abs,y
+	  "0000" & "000000" & writeAbsX & aluInClr & aluInp, -- 9C STZ Abs,x ----- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- 9F NOP ----- 65C02
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0010" & "100010" & immediate & aluInT   & aluInp, -- A0 LDY imm
 	  "1000" & "100010" & readIndX  & aluInT   & aluInp, -- A1 LDA (zp,x)
 	  "0100" & "100010" & immediate & aluInT   & aluInp, -- A2 LDX imm
-	  "1100" & "100010" & readIndX  & aluInT   & aluInp, -- A3 LAX (zp,x)
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- A3 NOP ----- 65C02
 	  "0010" & "100010" & readZp    & aluInT   & aluInp, -- A4 LDY zp
 	  "1000" & "100010" & readZp    & aluInT   & aluInp, -- A5 LDA zp
 	  "0100" & "100010" & readZp    & aluInT   & aluInp, -- A6 LDX zp
-	  "1100" & "100010" & readZp    & aluInT   & aluInp, -- A7 iLAX zp
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- A7 NOP ----- 65C02
 	  "0010" & "100010" & implied   & aluInA   & aluInp, -- A8 TAY
 	  "1000" & "100010" & immediate & aluInT   & aluInp, -- A9 LDA imm
 	  "0100" & "100010" & implied   & aluInA   & aluInp, -- AA TAX
-	  "1100" & "100010" & immediate & aluInET  & aluInp, -- AB iLXA imm
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- AB NOP ----- 65C02
 	  "0010" & "100010" & readAbs   & aluInT   & aluInp, -- AC LDY abs
 	  "1000" & "100010" & readAbs   & aluInT   & aluInp, -- AD LDA abs
 	  "0100" & "100010" & readAbs   & aluInT   & aluInp, -- AE LDX abs
-	  "1100" & "100010" & readAbs   & aluInT   & aluInp, -- AF iLAX abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- AF NOP ----- 65C02
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- B0 BCS
 	  "1000" & "100010" & readIndY  & aluInT   & aluInp, -- B1 LDA (zp),y
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- B2 *** JAM ***
-	  "1100" & "100010" & readIndY  & aluInT   & aluInp, -- B3 iLAX (zp),y
+	  "1000" & "100010" & readInd   & aluInT   & aluInp, -- B2 LDA (zp) ------ 65C02 
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- B3 NOP ----- 65C02
 	  "0010" & "100010" & readZpX   & aluInT   & aluInp, -- B4 LDY zp,x
 	  "1000" & "100010" & readZpX   & aluInT   & aluInp, -- B5 LDA zp,x
 	  "0100" & "100010" & readZpY   & aluInT   & aluInp, -- B6 LDX zp,y
-	  "1100" & "100010" & readZpY   & aluInT   & aluInp, -- B7 iLAX zp,y
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- B7 NOP ----- 65C02
 	  "0000" & "010000" & implied   & aluInClr & aluFlg, -- B8 CLV
 	  "1000" & "100010" & readAbsY  & aluInT   & aluInp, -- B9 LDA abs,y
 	  "0100" & "100010" & implied   & aluInS   & aluInp, -- BA TSX
-	  "1101" & "100010" & readAbsY  & aluInST  & aluInp, -- BB iLAS abs,y
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- BB NOP ----- 65C02
 	  "0010" & "100010" & readAbsX  & aluInT   & aluInp, -- BC LDY abs,x
 	  "1000" & "100010" & readAbsX  & aluInT   & aluInp, -- BD LDA abs,x
 	  "0100" & "100010" & readAbsY  & aluInT   & aluInp, -- BE LDX abs,y
-	  "1100" & "100010" & readAbsY  & aluInT   & aluInp, -- BF iLAX abs,y
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- BF NOP ----- 65C02
 	-- AXYS     NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "100011" & immediate & aluInT   & aluCpy, -- C0 CPY imm
 	  "0000" & "100011" & readIndX  & aluInT   & aluCmp, -- C1 CMP (zp,x)
-	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- C2 iNOP imm
-	  "0000" & "100011" & rmwIndX   & aluInT   & aluDcp, -- C3 iDCP (zp,x)
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- C2 NOP ----- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- C3 NOP ----- 65C02
 	  "0000" & "100011" & readZp    & aluInT   & aluCpy, -- C4 CPY zp
 	  "0000" & "100011" & readZp    & aluInT   & aluCmp, -- C5 CMP zp
 	  "0000" & "100010" & rmwZp     & aluInT   & aluDec, -- C6 DEC zp
-	  "0000" & "100011" & rmwZp     & aluInT   & aluDcp, -- C7 iDCP zp
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- C7 NOP ----- 65C02
 	  "0010" & "100010" & implied   & aluInY   & aluInc, -- C8 INY
 	  "0000" & "100011" & immediate & aluInT   & aluCmp, -- C9 CMP imm
 	  "0100" & "100010" & implied   & aluInX   & aluDec, -- CA DEX
-	  "0100" & "100011" & immediate & aluInT   & aluSbx, -- CB SBX imm
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- CB NOP ----- 65C02
 	  "0000" & "100011" & readAbs   & aluInT   & aluCpy, -- CC CPY abs
 	  "0000" & "100011" & readAbs   & aluInT   & aluCmp, -- CD CMP abs
 	  "0000" & "100010" & rmwAbs    & aluInT   & aluDec, -- CE DEC abs
-	  "0000" & "100011" & rmwAbs    & aluInT   & aluDcp, -- CF iDCP abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- CF NOP ----- 65C02
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- D0 BNE
 	  "0000" & "100011" & readIndY  & aluInT   & aluCmp, -- D1 CMP (zp),y
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- D2 *** JAM ***
-	  "0000" & "100011" & rmwIndY   & aluInT   & aluDcp, -- D3 iDCP (zp),y
-	  "0000" & "000000" & readZpX   & aluInXXX & aluXXX, -- D4 iNOP zp,x
+	  "0000" & "100011" & readInd   & aluInT   & aluCmp, -- D2 CMP (zp) ------ 65C02 
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- D3 NOP ----- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- D4 NOP ----- 65C02
 	  "0000" & "100011" & readZpX   & aluInT   & aluCmp, -- D5 CMP zp,x
 	  "0000" & "100010" & rmwZpX    & aluInT   & aluDec, -- D6 DEC zp,x
-	  "0000" & "100011" & rmwZpX    & aluInT   & aluDcp, -- D7 iDCP zp,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- D7 NOP ----- 65C02
 	  "0000" & "001000" & implied   & aluInClr & aluXXX, -- D8 CLD
 	  "0000" & "100011" & readAbsY  & aluInT   & aluCmp, -- D9 CMP abs,y
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- DA iNOP implied
-	  "0000" & "100011" & rmwAbsY   & aluInT   & aluDcp, -- DB iDCP abs,y
-	  "0000" & "000000" & readAbsX  & aluInXXX & aluXXX, -- DC iNOP abs,x
+	  "0000" & "000000" & push      & aluInX   & aluInp, -- DA PHX ----------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- DB NOP ----- 65C02
+	  "0000" & "000000" & readAbs   & aluInXXX & aluXXX, -- DC NOP ----- 65C02
 	  "0000" & "100011" & readAbsX  & aluInT   & aluCmp, -- DD CMP abs,x
 	  "0000" & "100010" & rmwAbsX   & aluInT   & aluDec, -- DE DEC abs,x
-	  "0000" & "100011" & rmwAbsX   & aluInT   & aluDcp, -- DF iDCP abs,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- DF NOP ----- 65C02
 	-- AXYS    NVDIZC    addressing  aluInput  aluMode
 	  "0000" & "100011" & immediate & aluInT   & aluCpx, -- E0 CPX imm
 	  "1000" & "110011" & readIndX  & aluInT   & aluSbc, -- E1 SBC (zp,x)
-	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- E2 iNOP imm
-	  "1000" & "110011" & rmwIndX   & aluInT   & aluIsc, -- E3 iISC (zp,x)
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- E2 NOP ----- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- E3 NOP ----- 65C02
 	  "0000" & "100011" & readZp    & aluInT   & aluCpx, -- E4 CPX zp
 	  "1000" & "110011" & readZp    & aluInT   & aluSbc, -- E5 SBC zp
 	  "0000" & "100010" & rmwZp     & aluInT   & aluInc, -- E6 INC zp
-	  "1000" & "110011" & rmwZp     & aluInT   & aluIsc, -- E7 iISC zp
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- E7 NOP ----- 65C02
 	  "0100" & "100010" & implied   & aluInX   & aluInc, -- E8 INX
 	  "1000" & "110011" & immediate & aluInT   & aluSbc, -- E9 SBC imm
 	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- EA NOP
-	  "1000" & "110011" & immediate & aluInT   & aluSbc, -- EB SBC imm (illegal opc)
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- EB NOP ----- 65C02
 	  "0000" & "100011" & readAbs   & aluInT   & aluCpx, -- EC CPX abs
 	  "1000" & "110011" & readAbs   & aluInT   & aluSbc, -- ED SBC abs
 	  "0000" & "100010" & rmwAbs    & aluInT   & aluInc, -- EE INC abs
-	  "1000" & "110011" & rmwAbs    & aluInT   & aluIsc, -- EF iISC abs
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- EF NOP ----- 65C02
 	  "0000" & "000000" & relative  & aluInXXX & aluXXX, -- F0 BEQ
 	  "1000" & "110011" & readIndY  & aluInT   & aluSbc, -- F1 SBC (zp),y
-	  "----" & "------" & xxxxxxxx  & aluInXXX & aluXXX, -- F2 *** JAM ***
-	  "1000" & "110011" & rmwIndY   & aluInT   & aluIsc, -- F3 iISC (zp),y
-	  "0000" & "000000" & readZpX   & aluInXXX & aluXXX, -- F4 iNOP zp,x
+	  "1000" & "110011" & readInd   & aluInT   & aluSbc, -- F2 SBC (zp) ------ 65C02 
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- F3 NOP ----- 65C02
+	  "0000" & "000000" & immediate & aluInXXX & aluXXX, -- F4 NOP ----- 65C02
 	  "1000" & "110011" & readZpX   & aluInT   & aluSbc, -- F5 SBC zp,x
 	  "0000" & "100010" & rmwZpX    & aluInT   & aluInc, -- F6 INC zp,x
-	  "1000" & "110011" & rmwZpX    & aluInT   & aluIsc, -- F7 iISC zp,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- F7 NOP  ---- 65C02
 	  "0000" & "001000" & implied   & aluInSet & aluXXX, -- F8 SED
 	  "1000" & "110011" & readAbsY  & aluInT   & aluSbc, -- F9 SBC abs,y
-	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- FA iNOP implied
-	  "1000" & "110011" & rmwAbsY   & aluInT   & aluIsc, -- FB iISC abs,y
-	  "0000" & "000000" & readAbsX  & aluInXXX & aluXXX, -- FC iNOP abs,x
+	  "0100" & "100010" & pop       & aluInT   & aluInp, -- FA PLX ----------- 65C02
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX, -- FB NOP ----- 65C02
+	  "0000" & "000000" & readAbs   & aluInXXX & aluXXX, -- FC NOP ----- 65C02
 	  "1000" & "110011" & readAbsX  & aluInT   & aluSbc, -- FD SBC abs,x
 	  "0000" & "100010" & rmwAbsX   & aluInT   & aluInc, -- FE INC abs,x
-	  "1000" & "110011" & rmwAbsX   & aluInT   & aluIsc  -- FF iISC abs,x
+	  "0000" & "000000" & implied   & aluInXXX & aluXXX  -- FF NOP ----- 65C02
 	);
 	signal opcInfo        : decodedBitsDef;
 	signal nextOpcInfo    : decodedBitsDef;	-- Next opcode (decoded)
@@ -625,26 +601,23 @@ architecture fast of cpu65xx is
 	signal myAddrIncrH : unsigned(7 downto 0);
 	signal myAddrDecrH : unsigned(7 downto 0);
 	signal theWe : std_logic;
-
 	signal irqActive : std_logic;
-	
 -- Output register
 	signal doReg : unsigned(7 downto 0);
-	
 -- Buffer register
 	signal T : unsigned(7 downto 0);
-
 -- General registers
 	signal A: unsigned(7 downto 0); -- Accumulator
 	signal X: unsigned(7 downto 0); -- Index X
 	signal Y: unsigned(7 downto 0); -- Index Y
 	signal S: unsigned(7 downto 0); -- stack pointer
-
 -- Status register
 	signal C: std_logic; -- Carry
 	signal Z: std_logic; -- Zero flag
 	signal I: std_logic; -- Interrupt flag
 	signal D: std_logic; -- Decimal mode
+	signal B: std_logic; -- Break software interrupt
+	signal R: std_logic; -- always 1
 	signal V: std_logic; -- Overflow
 	signal N: std_logic; -- Negative
 
@@ -659,29 +632,18 @@ architecture fast of cpu65xx is
 	signal aluZ : std_logic;
 	signal aluV : std_logic;
 	signal aluN : std_logic;
-	-- Pipeline registers
-	signal aluInputReg : unsigned(7 downto 0);
-	signal aluCmpInputReg : unsigned(7 downto 0);
-	signal aluRmwReg : unsigned(7 downto 0);
-	signal aluNineReg : unsigned(7 downto 0);
-	signal aluCReg : std_logic;
-	signal aluZReg : std_logic;
-	signal aluVReg : std_logic;
-	signal aluNReg : std_logic;
-
 -- Indexing
 	signal indexOut : unsigned(8 downto 0);
 
+	signal realbrk : std_logic;
 begin
 processAluInput: process(clk, opcInfo, A, X, Y, T, S)
 		variable temp : unsigned(7 downto 0);
 	begin
 		temp := (others => '1');
+		
 		if opcInfo(opcInA) = '1' then
 			temp := temp and A;
-		end if;
-		if opcInfo(opcInE) = '1' then
-			temp := temp and (A or X"EE");
 		end if;
 		if opcInfo(opcInX) = '1' then
 			temp := temp and X;
@@ -695,17 +657,15 @@ processAluInput: process(clk, opcInfo, A, X, Y, T, S)
 		if opcInfo(opcInT) = '1' then
 			temp := temp and T;
 		end if;
+		if opcInfo(opcInBrk) = '1' then
+			temp := temp and "11100111"; -- also DMB clear D (bit 3)
+		end if;
 		if opcInfo(opcInClear) = '1' then
 			temp := (others => '0');
 		end if;
-		if rising_edge(clk) then
-			aluInputReg <= temp;
-		end if;
-
+	
 		aluInput <= temp;
-		if pipelineAluMux then
-			aluInput <= aluInputReg;
-		end if;
+
 	end process;
 
 processCmpInput: process(clk, opcInfo, A, X, Y)
@@ -721,14 +681,8 @@ processCmpInput: process(clk, opcInfo, A, X, Y)
 		if opcInfo(opcInCpy) = '1' then
 			temp := temp and Y;
 		end if;
-		if rising_edge(clk) then
-			aluCmpInputReg <= temp;
-		end if;
-
+	
 		aluCmpInput <= temp;
-		if pipelineAluMux then
-			aluCmpInput <= aluCmpInputReg;
-		end if;
 	end process;
 
 	-- ALU consists of two parts
@@ -736,10 +690,25 @@ processCmpInput: process(clk, opcInfo, A, X, Y)
 	-- Accumulator instructions: ADC, SBC, EOR, AND, EOR, ORA
 	-- Some instructions are both RMW and accumulator so for most
 	-- instructions the rmw results are routed through accu alu too.
-processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, D, I, Z, C)
+	
+--	The B flag
+------------
+--No actual "B" flag exists inside the 6502's processor status register. The B 
+--flag only exists in the status flag byte pushed to the stack. Naturally, 
+--when the flags are restored (via PLP or RTI), the B bit is discarded.
+--
+--Depending on the means, the B status flag will be pushed to the stack as 
+--either 0 or 1.
+--
+--software instructions BRK & PHP will push the B flag as being 1.
+--hardware interrupts IRQ & NMI will push the B flag as being 0.
+
+	
+processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, R, D, I, Z, C)
 		variable lowBits: unsigned(5 downto 0);
 		variable nineBits: unsigned(8 downto 0);
 		variable rmwBits: unsigned(8 downto 0);
+		variable tsxBits: unsigned(8 downto 0);
 		
 		variable varC : std_logic;
 		variable varZ : std_logic;
@@ -749,63 +718,75 @@ processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, 
 		lowBits := (others => '-');
 		nineBits := (others => '-');
 		rmwBits := (others => '-');
-		varV := aluInput(6); -- Default for BIT / PLP / RTI
+		tsxBits := (others => '-');
+		R <= '1';
+	
 
 		-- Shift unit
 		case opcInfo(aluMode1From to aluMode1To) is
-		when aluModeInp =>
-			rmwBits := C & aluInput;
-		when aluModeP =>
-			rmwBits := C & N & V & '1' & (not irqActive) & D & I & Z & C;
-		when aluModeInc =>
-			rmwBits := C & (aluInput + 1);
-		when aluModeDec =>
-			rmwBits := C & (aluInput - 1);
-		when aluModeAsl =>
-			rmwBits := aluInput & "0";
-		when aluModeFlg =>
-			rmwBits := aluInput(0) & aluInput;
-		when aluModeLsr =>
-			rmwBits := aluInput(0) & "0" & aluInput(7 downto 1);
-		when aluModeRol =>
-			rmwBits := aluInput & C;
-		when aluModeRoR =>
-			rmwBits := aluInput(0) & C & aluInput(7 downto 1);
-		when aluModeAnc =>
-			rmwBits := (aluInput(7) and A(7)) & aluInput;
-		when others =>
-			rmwBits := C & aluInput;
+		when aluModeInp =>			rmwBits := C & aluInput;
+		when aluModeP => 				rmwBits := C & N & V & R & (not irqActive) & D & I & Z & C; -- irqActive
+		when aluModeInc =>			rmwBits := C & (aluInput + 1);
+		when aluModeDec =>			rmwBits := C & (aluInput - 1);
+		when aluModeAsl =>		   rmwBits := aluInput & "0";
+		when aluModeTSB =>  			rmwBits := "0" & (aluInput(7 downto 0) or A);					-- added by alan for 65c02
+											tsxBits := "0" & (aluInput(7 downto 0) and A);
+		when aluModeTRB =>		   rmwBits := "0" & (aluInput(7 downto 0) and (not A));  		-- added by alan for 65c02
+											tsxBits := "0" & (aluInput(7 downto 0) and A);
+		when aluModeFlg =>			rmwBits := aluInput(0) & aluInput;
+		when aluModeLsr =>			rmwBits := aluInput(0) & "0" & aluInput(7 downto 1);
+		when aluModeRol =>			rmwBits := aluInput & C;
+		when aluModeRoR =>			rmwBits := aluInput(0) & C & aluInput(7 downto 1);
+		when others =>					rmwBits := C & aluInput;
 		end case;
 		
 		-- ALU
 		case opcInfo(aluMode2From to aluMode2To) is
-		when aluModeAdc =>
-			lowBits := ("0" & A(3 downto 0) & rmwBits(8)) + ("0" & rmwBits(3 downto 0) & "1");
-			ninebits := ("0" & A) + ("0" & rmwBits(7 downto 0)) + (B"00000000" & rmwBits(8));
-		when aluModeSbc =>
-			lowBits := ("0" & A(3 downto 0) & rmwBits(8)) + ("0" & (not rmwBits(3 downto 0)) & "1");
-			ninebits := ("0" & A) + ("0" & (not rmwBits(7 downto 0))) + (B"00000000" & rmwBits(8));
-		when aluModeCmp =>
-			ninebits := ("0" & aluCmpInput) + ("0" & (not rmwBits(7 downto 0))) + "000000001";
-		when aluModeAnd =>
-			ninebits := rmwBits(8) & (A and rmwBits(7 downto 0));
-		when aluModeEor =>
-			ninebits := rmwBits(8) & (A xor rmwBits(7 downto 0));
-		when aluModeOra =>
-			ninebits := rmwBits(8) & (A or rmwBits(7 downto 0));
-		when others =>
-			ninebits := rmwBits;
+		when aluModeAdc =>			lowBits := ("0" & A(3 downto 0) & rmwBits(8)) + ("0" & rmwBits(3 downto 0) & "1");
+											ninebits := ("0" & A) + ("0" & rmwBits(7 downto 0)) + (B"00000000" & rmwBits(8));
+		when aluModeSbc =>			lowBits := ("0" & A(3 downto 0) & rmwBits(8)) + ("0" & (not rmwBits(3 downto 0)) & "1");
+											ninebits := ("0" & A) + ("0" & (not rmwBits(7 downto 0))) + (B"00000000" & rmwBits(8));
+		when aluModeCmp =>			ninebits := ("0" & aluCmpInput) + ("0" & (not rmwBits(7 downto 0))) + "000000001";
+		when aluModeAnd =>			ninebits := rmwBits(8) & (A and rmwBits(7 downto 0));
+		when aluModeEor =>			ninebits := rmwBits(8) & (A xor rmwBits(7 downto 0));
+		when aluModeOra =>			ninebits := rmwBits(8) & (A or rmwBits(7 downto 0));
+		when aluModeNoF =>			ninebits := "000110000";
+		when others =>			      ninebits := rmwBits;
 		end case;
 
+		
+		varV := aluInput(6); -- Default for BIT / PLP / RTI
+		
+				
 		if (opcInfo(aluMode1From to aluMode1To) = aluModeFlg) then
 			varZ := rmwBits(1);
+		elsif (opcInfo(aluMode1From to aluMode1To) = aluModeTSB) or (opcInfo(aluMode1From to aluMode1To) = aluModeTRB) then
+					if tsxBits(7 downto 0) = X"00" then
+									varZ := '1';
+						else
+									varZ := '0';
+					end if;
 		elsif ninebits(7 downto 0) = X"00" then
 			varZ := '1';
 		else
 			varZ := '0';
 		end if;
-
+		
+		if (opcInfo(aluMode1From to aluMode1To) = aluModeBit) or (opcInfo(aluMode1From to aluMode1To) = aluModeFlg) then
+			varN := rmwBits(7);
+				  	else
+			varN := nineBits(7);
+		end if;
+		
+		varC := ninebits(8);
+			
 		case opcInfo(aluMode2From to aluMode2To) is
+		--		Flags Affected: n v — — — — z c
+		--		n Set if most significant bit of result is set; else cleared.
+		--		v Set if signed overflow; cleared if valid signed result.
+		--		z Set if result is zero; else cleared.
+		--		c Set if unsigned overflow; cleared if valid unsigned result
+		
 		when aluModeAdc =>
 			-- decimal mode low bits correction, is done after setting Z flag.
 			if D = '1' then
@@ -816,21 +797,8 @@ processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, 
 					end if;
 				end if;
 			end if;
-		when others =>
-			null;
+		when others =>			null;
 		end case;
-
-		if (opcInfo(aluMode1From to aluMode1To) = aluModeBit)
-		or (opcInfo(aluMode1From to aluMode1To) = aluModeFlg) then
-			varN := rmwBits(7);
-		else
-			varN := nineBits(7);
-		end if;
-		varC := ninebits(8);
-		if opcInfo(aluMode2From to aluMode2To) = aluModeArr then
-			varC := aluInput(7);
-			varV := aluInput(7) xor aluInput(6);
-		end if;
 
 		case opcInfo(aluMode2From to aluMode2To) is
 		when aluModeAdc =>
@@ -840,73 +808,68 @@ processAlu: process(clk, opcInfo, aluInput, aluCmpInput, A, T, irqActive, N, V, 
 				if ninebits(8 downto 4) > 9 then
 					ninebits(8 downto 4) := ninebits(8 downto 4) + 6;
 					varC := '1';
-				end if;
+				end if;	
 			end if;
+		
 		when aluModeSbc =>
 			varV := (A(7) xor ninebits(7)) and ((not rmwBits(7)) xor ninebits(7));
 			if D = '1' then
 				-- Check for borrow (lower 4 bits)
 				if lowBits(5) = '0' then
-					ninebits(3 downto 0) := ninebits(3 downto 0) - 6;
+					ninebits(7 downto 0) := ninebits(7 downto 0) - 6;
 				end if;
 				-- Check for borrow (upper 4 bits)
 				if ninebits(8) = '0' then
 					ninebits(8 downto 4) := ninebits(8 downto 4) - 6;
 				end if;
 			end if;
-		when aluModeArr =>
-			if D = '1' then
-				if (("0" & aluInput(3 downto 0)) + ("0000" & aluInput(0))) > 5 then
-					ninebits(3 downto 0) := ninebits(3 downto 0) + 6;
-				end if;
-				if (("0" & aluInput(7 downto 4)) + ("0000" & aluInput(4))) > 5 then
-					ninebits(8 downto 4) := ninebits(8 downto 4) + 6;
-					varC := '1';
-				else
-					varC := '0';
-				end if;
-			end if;
-		when others =>
-			null;
+		when others =>			null;
 		end case;
 
-		if rising_edge(clk) then
-			aluRmwReg <= rmwBits(7 downto 0);
-			aluNineReg <= ninebits(7 downto 0);
-			aluCReg <= varC;
-			aluZReg <= varZ;
-			aluVReg <= varV;
-			aluNReg <= varN;
-		end if;
+		-- fix n and z flag for 65c02 adc sbc instructions in decimal mode
+		case opcInfo(aluMode2From to aluMode2To) is
+		when aluModeAdc =>
+			if D = '1' then
+				if ninebits(7 downto 0) = X"00" then
+					varZ := '1';
+				else
+					varZ := '0';
+				end if;	
+                varN := ninebits(7);
+			end if;
+		when aluModeSbc =>
+			if D = '1' then
+				if ninebits(7 downto 0) = X"00" then
+					varZ := '1';
+				else
+					varZ := '0';
+				end if;	
+                varN := ninebits(7);
+			end if;
+		when others =>			null;
+		end case;	
 
+-- DMB Remove Pipelining        		
+--	if rising_edge(clk) then	
 		aluRmwOut <= rmwBits(7 downto 0);
 		aluRegisterOut <= ninebits(7 downto 0);
 		aluC <= varC;
 		aluZ <= varZ;
 		aluV <= varV;
 		aluN <= varN;
-		if pipelineAluOut then
-			aluRmwOut <= aluRmwReg;
-			aluRegisterOut <= aluNineReg;
-			aluC <= aluCReg;
-			aluZ <= aluZReg;
-			aluV <= aluVReg;
-			aluN <= aluNReg;
-		end if;
+--		end if;
+		
 	end process;
 
 calcInterrupt: process(clk)
 	begin
 		if rising_edge(clk) then
 			if enable = '1' then
-				if theCpuCycle = cycleStack4
-				or reset = '1' then
+				if theCpuCycle = cycleStack4 or reset = '0' then
 					nmiReg <= '1';
-				end if;
-
-				if nextCpuCycle /= cycleBranchTaken
-				and nextCpuCycle /= opcodeFetch then
-					irqReg <= irq_n;
+				end if;            
+				if nextCpuCycle /= cycleBranchTaken	and nextCpuCycle /= opcodeFetch then
+                    irqReg <= irq_n;
 					nmiEdge <= nmi_n;
 					if (nmiEdge = '1') and (nmi_n = '0') then
 						nmiReg <= '0';
@@ -914,32 +877,47 @@ calcInterrupt: process(clk)
 				end if;
 				-- The 'or opcInfo(opcSetI)' prevents NMI immediately after BRK or IRQ.
 				-- Presumably this is done in the real 6502/6510 to prevent a double IRQ.
-				processIrq <= not ((nmiReg and (irqReg or I)) or opcInfo(opcIRQ));
+				processIrq <= not ((nmiReg and (irqReg or I)) or opcInfo(opcIRQ));                    
 			end if;
 		end if;
 	end process;
+	
+--pipeirq: process(clk)
+--	begin
+--		if rising_edge(clk) then
+--			if enable = '1' then
+--				if (reset = '0') or (theCpuCycle = opcodeFetch) then
+--                    -- The 'or opcInfo(opcSetI)' prevents NMI immediately after BRK or IRQ.
+--                    -- Presumably this is done in the real 6502/6510 to prevent a double IRQ.
+--                    processIrq <= not ((nmiReg and (irqReg or I)) or opcInfo(opcIRQ));
+--				end if;
+--			end if;
+--		end if;
+--	end process;
 
 calcNextOpcode: process(clk, di, reset, processIrq)
 		variable myNextOpcode : unsigned(7 downto 0);
 	begin
 		-- Next opcode is read from input unless a reset or IRQ is pending.
 		myNextOpcode := di;
-		if reset = '1' then
+	   		
+		if reset = '0' then
 			myNextOpcode := X"4C";
 		elsif processIrq = '1' then
 			myNextOpcode := X"00";
 		end if;
-		
 		nextOpcode <= myNextOpcode;
 	end process;
 
 	nextOpcInfo <= opcodeInfoTable(to_integer(nextOpcode));
-	process(clk)
-	begin
-		if rising_edge(clk) then
+	
+-- DMB Remove Pipelining        		
+--	process(clk)
+--	begin
+--		if rising_edge(clk) then
 			nextOpcInfoReg <= nextOpcInfo;
-		end if;
-	end process;
+--		end if;
+--	end process;
 
 	-- Read bits and flags from opcodeInfoTable and store in opcInfo.
 	-- This info is used to control the execution of the opcode.
@@ -947,11 +925,8 @@ calcOpcInfo: process(clk)
 	begin
 		if rising_edge(clk) then
 			if enable = '1' then
-				if (reset = '1') or (theCpuCycle = opcodeFetch) then
+				if (reset = '0') or (theCpuCycle = opcodeFetch) then
 					opcInfo <= nextOpcInfo;
-					if pipelineOpcode then
-						opcInfo <= nextOpcInfoReg;
-					end if;
 				end if;
 			end if;
 		end if;
@@ -990,14 +965,13 @@ calcTheOpcode:	process(clk)
 		end if;
 	end process;
 
-	debugOpcode <= theOpcode;
 	process(clk)
 	begin
 		if rising_edge(clk) then
 			if enable = '1' then
 				theCpuCycle <= nextCpuCycle;
 			end if;
-			if reset = '1' then
+			if reset = '0' then
 				theCpuCycle <= cycle2;
 			end if;				
 		end if;			
@@ -1010,138 +984,109 @@ calcNextCpuCycle: process(theCpuCycle, opcInfo, theOpcode, indexOut, T, N, V, C,
 		nextCpuCycle <= opcodeFetch;
 
 		case theCpuCycle is
-		when opcodeFetch =>
-			nextCpuCycle <= cycle2;
-		when cycle2 =>
-			if opcInfo(opcBranch) = '1' then
-				if (N = theOpcode(5) and theOpcode(7 downto 6) = "00")
-				or (V = theOpcode(5) and theOpcode(7 downto 6) = "01")
-				or (C = theOpcode(5) and theOpcode(7 downto 6) = "10")
-				or (Z = theOpcode(5) and theOpcode(7 downto 6) = "11") then
-					-- Branch condition is true
-					nextCpuCycle <= cycleBranchTaken;
-				end if;
-			elsif (opcInfo(opcStackUp) = '1') then
-				nextCpuCycle <= cycleStack1;
-			elsif opcInfo(opcStackAddr) = '1'
-			and opcInfo(opcStackData) = '1' then
-				nextCpuCycle <= cycleStack2;
-			elsif opcInfo(opcStackAddr) = '1' then
-				nextCpuCycle <= cycleStack1;
-			elsif opcInfo(opcStackData) = '1' then
-				nextCpuCycle <= cycleWrite;
-			elsif opcInfo(opcAbsolute) = '1' then
-				nextCpuCycle <= cycle3;
-			elsif opcInfo(opcIndirect) = '1' then
-				if opcInfo(indexX) = '1' then
-					nextCpuCycle <= cyclePreIndirect;			
-				else
-					nextCpuCycle <= cycleIndirect;
-				end if;					
-			elsif opcInfo(opcZeroPage) = '1' then
-				if opcInfo(opcWrite) = '1' then
-					if (opcInfo(indexX) = '1')
-					or (opcInfo(indexY) = '1') then
-						nextCpuCycle <= cyclePreWrite;
-					else						
-						nextCpuCycle <= cycleWrite;
-					end if;						
-				else
-					if (opcInfo(indexX) = '1')
-					or (opcInfo(indexY) = '1') then
-						nextCpuCycle <= cyclePreRead;
-					else						
-						nextCpuCycle <= cycleRead2;
-					end if;						
-				end if;					
-			elsif opcInfo(opcJump) = '1' then
-				nextCpuCycle <= cycleJump;
-			end if;
-		when cycle3 =>
-			nextCpuCycle <= cycleRead;
-			if opcInfo(opcWrite) = '1' then
-				if (opcInfo(indexX) = '1')
-				or (opcInfo(indexY) = '1') then
-					nextCpuCycle <= cyclePreWrite;
-				else						
-					nextCpuCycle <= cycleWrite;
-				end if;					
-			end if;
-			if (opcInfo(opcIndirect) = '1')
-			and (opcInfo(indexX) = '1') then
-				if opcInfo(opcWrite) = '1' then
-					nextCpuCycle <= cycleWrite;
-				else					
-					nextCpuCycle <= cycleRead2;
-				end if;
-			end if;									
-		when cyclePreIndirect =>			
-			nextCpuCycle <= cycleIndirect;
-		when cycleIndirect =>
-			nextCpuCycle <= cycle3;
-		when cycleBranchTaken =>
-			if indexOut(8) /= T(7) then
-				-- Page boundary crossing during branch.
-				nextCpuCycle <= cycleBranchPage;
-			end if;
-		when cyclePreRead =>
-			if opcInfo(opcZeroPage) = '1' then
-				nextCpuCycle <= cycleRead2;
-			end if;
+		when opcodeFetch =>		nextCpuCycle <= cycle2;
+		when cycle2 =>							if opcInfo(opcBranch) = '1' then
+														if (N = theOpcode(5) and theOpcode(7 downto 6) = "00")
+															or (V = theOpcode(5) and theOpcode(7 downto 6) = "01")
+															or (C = theOpcode(5) and theOpcode(7 downto 6) = "10")
+															or (Z = theOpcode(5) and theOpcode(7 downto 6) = "11")
+															or (theOpcode(7 downto 0) = x"80")	then			-- Branch condition is true
+																	nextCpuCycle <= cycleBranchTaken;
+														end if;
+													elsif (opcInfo(opcStackUp) = '1') then
+														nextCpuCycle <= cycleStack1;
+													elsif opcInfo(opcStackAddr) = '1'	and opcInfo(opcStackData) = '1' then
+														nextCpuCycle <= cycleStack2;
+													elsif opcInfo(opcStackAddr) = '1' then
+														nextCpuCycle <= cycleStack1;
+													elsif opcInfo(opcStackData) = '1' then
+														nextCpuCycle <= cycleWrite;
+													elsif opcInfo(opcAbsolute) = '1' then
+														nextCpuCycle <= cycle3;
+													elsif opcInfo(opcIndirect) = '1' then
+															if opcInfo(indexX) = '1' then
+																	nextCpuCycle <= cyclePreIndirect;			
+																else
+																	nextCpuCycle <= cycleIndirect;
+															end if;					
+													elsif opcInfo(opcZeroPage) = '1' then
+															if opcInfo(opcWrite) = '1' then
+																	if (opcInfo(indexX) = '1')	or (opcInfo(indexY) = '1') then
+																			nextCpuCycle <= cyclePreWrite;
+																		else						
+																			nextCpuCycle <= cycleWrite;
+																	end if;						
+															else
+																	if (opcInfo(indexX) = '1')	or (opcInfo(indexY) = '1') then
+																			nextCpuCycle <= cyclePreRead;
+																		else						
+																			nextCpuCycle <= cycleRead2;
+																	end if;						
+															end if;					
+													elsif opcInfo(opcJump) = '1' then
+																nextCpuCycle <= cycleJump;
+													end if;
+		when cycle3 =>					nextCpuCycle <= cycleRead;
+														if opcInfo(opcWrite) = '1' then
+																if (opcInfo(indexX) = '1')	or (opcInfo(indexY) = '1') then
+																		nextCpuCycle <= cyclePreWrite;
+																	else						
+																		nextCpuCycle <= cycleWrite;
+																end if;					
+														end if;
+														if (opcInfo(opcIndirect) = '1')	and (opcInfo(indexX) = '1') then
+																	if opcInfo(opcWrite) = '1' then
+																			nextCpuCycle <= cycleWrite;
+																		else					
+																			nextCpuCycle <= cycleRead2;
+																	end if;
+														end if;
+		when cyclePreIndirect =>			nextCpuCycle <= cycleIndirect;
+		when cycleIndirect =>			nextCpuCycle <= cycle3;
+		when cycleBranchTaken =>		if indexOut(8) /= T(7) then
+													nextCpuCycle <= cycleBranchPage;
+												end if;
+		when cyclePreRead =>				if opcInfo(opcZeroPage) = '1' then
+													nextCpuCycle <= cycleRead2;
+												end if;
 		when cycleRead =>
-			if opcInfo(opcJump) = '1' then
-				nextCpuCycle <= cycleJump;
-			elsif indexOut(8) = '1' then
-				-- Page boundary crossing while indexed addressing.
-				nextCpuCycle <= cycleRead2;
-			elsif opcInfo(opcRmw) = '1' then
-				nextCpuCycle <= cycleRmw;
-				if opcInfo(indexX) = '1'
-				or opcInfo(indexY) = '1' then
-					-- 6510 needs extra cycle for indexed addressing
-					-- combined with RMW indexing
-					nextCpuCycle <= cycleRead2;
-				end if;
-			end if;											
-		when cycleRead2 =>
-			if opcInfo(opcRmw) = '1' then
-				nextCpuCycle <= cycleRmw;
-			end if;											
-		when cycleRmw =>
-			nextCpuCycle <= cycleWrite;
-		when cyclePreWrite =>
-			nextCpuCycle <= cycleWrite;
-		when cycleStack1 =>
-			nextCpuCycle <= cycleRead;
-			if opcInfo(opcStackAddr) = '1' then
-				nextCpuCycle <= cycleStack2;
-			end if;				
-		when cycleStack2 =>
-			nextCpuCycle <= cycleStack3;
-			if opcInfo(opcRti) = '1' then
-				nextCpuCycle <= cycleRead;
-			end if;
-			if opcInfo(opcStackData) = '0'
-			and opcInfo(opcStackUp) = '1' then
-				nextCpuCycle <= cycleJump;
-			end if;
-		when cycleStack3 =>
-			nextCpuCycle <= cycleRead;
-			if opcInfo(opcStackData) = '0'
-			or opcInfo(opcStackUp) = '1' then
-				nextCpuCycle <= cycleJump;
-			elsif opcInfo(opcStackAddr) = '1' then
-				nextCpuCycle <= cycleStack4;				
-			end if;
-		when cycleStack4 =>
-			nextCpuCycle <= cycleRead;
-		when cycleJump =>
-			if opcInfo(opcIncrAfter) = '1' then
-				-- Insert extra cycle
-				nextCpuCycle <= cycleEnd;
-			end if;				
-		when others =>
-			null;
+												if opcInfo(opcJump) = '1' then
+													nextCpuCycle <= cycleJump;
+												elsif indexOut(8) = '1' then
+														nextCpuCycle <= cycleRead2;
+												elsif opcInfo(opcRmw) = '1' then
+													nextCpuCycle <= cycleRmw;
+														if opcInfo(indexX) = '1' or opcInfo(indexY) = '1' then
+															nextCpuCycle <= cycleRead2;
+														end if;
+												end if;											
+		when cycleRead2 => 			if opcInfo(opcRmw) = '1' then
+												nextCpuCycle <= cycleRmw;
+											end if;											
+		when cycleRmw =>				nextCpuCycle <= cycleWrite;
+		when cyclePreWrite =>		nextCpuCycle <= cycleWrite;
+		when cycleStack1 =>			nextCpuCycle <= cycleRead;
+											if opcInfo(opcStackAddr) = '1' then
+												nextCpuCycle <= cycleStack2;
+											end if;				
+		when cycleStack2 =>			nextCpuCycle <= cycleStack3;
+											if opcInfo(opcRti) = '1' then
+												nextCpuCycle <= cycleRead;
+											end if;
+											if opcInfo(opcStackData) = '0' and opcInfo(opcStackUp) = '1' then
+												nextCpuCycle <= cycleJump;
+											end if;
+		when cycleStack3 =>			nextCpuCycle <= cycleRead;
+											if opcInfo(opcStackData) = '0' or opcInfo(opcStackUp) = '1' then
+												nextCpuCycle <= cycleJump;
+											elsif opcInfo(opcStackAddr) = '1' then
+												nextCpuCycle <= cycleStack4;				
+											end if;
+		when cycleStack4 =>			nextCpuCycle <= cycleRead;
+		when cycleJump =>				if opcInfo(opcIncrAfter) = '1' then
+												nextCpuCycle <= cycleEnd;
+											end if;				
+		when others =>					null;
 		end case;
 	end process;		
 
@@ -1153,17 +1098,17 @@ calcT: process(clk)
 		if rising_edge(clk) then
 			if enable = '1' then
 				case theCpuCycle is
-				when cycle2 =>
-					T <= di;
+				when cycle2 =>														T <= di;
 				when cycleStack1 | cycleStack2 =>
 					if opcInfo(opcStackUp) = '1' then
-						-- Read from stack
-						T <= di;
+							if theOpcode = x"28" or theOpcode = x"40" then   -- plp or rti pulling the flags off the stack
+								T <= (di or "00110000");                      -- Read from stack
+							else
+								T <= di;
+							end if;
 					end if;											
-				when cycleIndirect | cycleRead | cycleRead2 =>
-					T <= di;
-				when others =>
-					null;					
+				when cycleIndirect | cycleRead | cycleRead2 =>			T <= di;
+				when others =>														null;					
 				end case;
 			end if;
 		end if;		
@@ -1240,29 +1185,32 @@ calcT: process(clk)
 	end process;
 
 -- -----------------------------------------------------------------------
--- I flag
+-- I flag interupt flag
 -- -----------------------------------------------------------------------
-	process(clk)
+	process(clk, reset)
 	begin
-		if rising_edge(clk) then
+	if reset = '0' then
+      I <= '1';
+        elsif rising_edge(clk) then
 			if updateRegisters then
 				if opcInfo(opcUpdateI) = '1' then
-					I <= aluInput(2);
+						I <= aluInput(2);
 				end if;
 			end if;
 		end if;
-	end process;
-
+	end process;	
 -- -----------------------------------------------------------------------
 -- D flag
 -- -----------------------------------------------------------------------
-	process(clk)
+	process(clk, reset)
 	begin
-		if rising_edge(clk) then
+	if reset = '0' then
+      D <= '0';
+        elsif rising_edge(clk) then
 			if updateRegisters then
 				if opcInfo(opcUpdateD) = '1' then
-					D <= aluInput(3);
-				end if;
+						D <= aluInput(3);
+					end if;
 			end if;
 		end if;
 	end process;
@@ -1277,12 +1225,6 @@ calcT: process(clk)
 				if opcInfo(opcUpdateV) = '1' then
 					V <= aluV;
 				end if;
-			end if;
-			if enable = '1' then
-				if soReg = '1' and so_n = '0' then
-					V <= '1';
-				end if;
-				soReg <= so_n;
 			end if;
 		end if;
 	end process;
@@ -1320,66 +1262,53 @@ calcT: process(clk)
 				updateFlag := false;			
 				case nextCpuCycle is
 				when cycleStack1 =>
-					if (opcInfo(opcStackUp) = '1')
-					or (opcInfo(opcStackData) = '1') then
-						updateFlag := true;			
-					end if;
-				when cycleStack2 =>
-					updateFlag := true;
-				when cycleStack3 =>
-					updateFlag := true;			
-				when cycleStack4 =>
-					updateFlag := true;
-				when cycleRead =>
-					if opcInfo(opcRti) = '1' then							
-						updateFlag := true;
-					end if;						
-				when cycleWrite =>
-					if opcInfo(opcStackData) = '1' then
-						updateFlag := true;
-					end if;						
-				when others =>
-					null;					
+												if (opcInfo(opcStackUp) = '1') or (opcInfo(opcStackData) = '1') then
+															updateFlag := true;			
+												end if;
+												
+				when cycleStack2 =>					updateFlag := true;
+				when cycleStack3 =>					updateFlag := true;			
+				when cycleStack4 =>					updateFlag := true;
+				when cycleRead =>			if opcInfo(opcRti) = '1' then							
+															updateFlag := true;
+												end if;						
+				when cycleWrite =>		if opcInfo(opcStackData) = '1' then
+															updateFlag := true;
+												end if;						
+				when others =>				null;					
 				end case;
+				
 				if updateFlag then
 					S <= sIncDec;
 				end if;					
+			
 			end if;
+			
 			if updateRegisters then
 				if opcInfo(opcUpdateS) = '1' then
 					S <= aluRegisterOut;
 				end if;					
 			end if;
+		
 		end if;
 	end process;
 
 -- -----------------------------------------------------------------------
 -- Data out
 -- -----------------------------------------------------------------------
---calcDo: process(cpuNo, theCpuCycle, aluOut, PC, T)
 calcDo: process(clk)
 	begin
 		if rising_edge(clk) then
 			if enable = '1' then
 				doReg <= aluRmwOut;
-				if opcInfo(opcInH) = '1' then
-					-- For illegal opcodes SHA, SHX, SHY, SHS
-					doReg <= aluRmwOut and myAddrIncrH;
-				end if;
-
 				case nextCpuCycle is
-				when cycleStack2 =>
-					if opcInfo(opcIRQ) = '1'
-					and irqActive = '0' then
-						doReg <= myAddrIncr(15 downto 8);
-					else
-						doReg <= PC(15 downto 8);
-					end if;
-				when cycleStack3 =>
-					doReg <= PC(7 downto 0);
-				when cycleRmw =>
---					do <= T; -- Read-modify-write write old value first.
-					doReg <= di; -- Read-modify-write write old value first.
+				when cycleStack2 =>					if opcInfo(opcIRQ) = '1' and irqActive = '0' then
+																doReg <= myAddrIncr(15 downto 8);
+															else
+																doReg <= PC(15 downto 8);
+															end if;
+				when cycleStack3 =>				doReg <= PC(7 downto 0);
+				when cycleRmw =>					doReg <= di; -- Read-modify-write write old value first.
 				when others => null;
 				end case;
 			end if;			
@@ -1396,29 +1325,25 @@ calcWe: process(clk)
 	begin
 		if rising_edge(clk) then
 			if enable = '1' then
-				theWe <= '0';
+				theWe <= '1'; 
 				case nextCpuCycle is
 				when cycleStack1 =>
-					if opcInfo(opcStackUp) = '0'
-					and ((opcInfo(opcStackAddr) = '0')
-					or (opcInfo(opcStackData) = '1')) then
-						theWe <= '1';
-					end if;						
+								if opcInfo(opcStackUp) = '0' and ((opcInfo(opcStackAddr) = '0') or (opcInfo(opcStackData) = '1')) then
+										theWe <= '0';
+								end if;
 				when cycleStack2 | cycleStack3 | cycleStack4 =>
-					if opcInfo(opcStackUp) = '0' then
-						theWe <= '1';
-					end if;						
-				when cycleRmw =>
-					theWe <= '1';
-				when cycleWrite =>
-					theWe <= '1';
-				when others =>
-					null;
+								if opcInfo(opcStackUp) = '0' then
+										theWe <= '0';	
+								end if;						
+				when cycleRmw =>				theWe <= '0';	
+				when cycleWrite =>			theWe <= '0';	
+				when others =>					null;
 				end case;				
 			end if;
-		end if;							
+		end if;	
+		--nwe <= theWe;
 	end process;
-	we <= theWe;
+	nwe <= theWe;
 
 -- -----------------------------------------------------------------------
 -- Program counter
@@ -1428,27 +1353,23 @@ calcPC: process(clk)
 		if rising_edge(clk) then
 			if enable = '1' then
 				case theCpuCycle is
-				when opcodeFetch =>
-					PC <= myAddr;
-				when cycle2 =>
-					if irqActive = '0' then
-						if opcInfo(opcSecondByte) = '1' then
-							PC <= myAddrIncr;
-						else							
-							PC <= myAddr;
-						end if;							
-					end if;						
-				when cycle3 =>
-					if opcInfo(opcAbsolute) = '1' then
-						PC <= myAddrIncr;					
-					end if;
-				when others =>
-					null;
+				when opcodeFetch =>					PC <= myAddr;
+				when cycle2 =>					if irqActive = '0' then
+														if opcInfo(opcSecondByte) = '1' then
+															PC <= myAddrIncr;
+														else							
+															PC <= myAddr;
+														end if;							
+													end if;						
+				when cycle3 =>					if opcInfo(opcAbsolute) = '1' then
+														PC <= myAddrIncr;					
+													end if;
+				when others =>					null;
 				end case;
 			end if;
 		end if;
 	end process;
-	debugPc <= PC;
+	
 
 -- -----------------------------------------------------------------------
 -- Address generation
@@ -1457,96 +1378,86 @@ calcNextAddr: process(theCpuCycle, opcInfo, indexOut, T, reset)
 	begin
 		nextAddr <= nextAddrIncr;
 		case theCpuCycle is
-		when cycle2 =>
-			if opcInfo(opcStackAddr) = '1' 
-			or opcInfo(opcStackData) = '1' then
-				nextAddr <= nextAddrStack;
-			elsif opcInfo(opcAbsolute) = '1' then
-				nextAddr <= nextAddrIncr;
-			elsif opcInfo(opcZeroPage) = '1' then
-				nextAddr <= nextAddrZeroPage;
-			elsif opcInfo(opcIndirect) = '1' then
-				nextAddr <= nextAddrZeroPage;
-			elsif opcInfo(opcSecondByte) = '1' then
-				nextAddr <= nextAddrIncr;
-			else
-				nextAddr <= nextAddrHold;
-			end if;
-		when cycle3 =>
-			if (opcInfo(opcIndirect) = '1')
-			and (opcInfo(indexX) = '1') then
-				nextAddr <= nextAddrAbs;
-			else							
-				nextAddr <= nextAddrAbsIndexed;
-			end if;				
-		when cyclePreIndirect =>
-			nextAddr <= nextAddrZPIndexed;
-		when cycleIndirect =>
-			nextAddr <= nextAddrIncrL;
-		when cycleBranchTaken =>
-			nextAddr <= nextAddrRelative;
-		when cycleBranchPage =>
-			if T(7) = '0' then
-				nextAddr <= nextAddrIncrH;
-			else				
-				nextAddr <= nextAddrDecrH;
-			end if;
-		when cyclePreRead =>
-			nextAddr <= nextAddrZPIndexed;
-		when cycleRead =>
-			nextAddr <= nextAddrPc;
-			if opcInfo(opcJump) = '1' then
-				-- Emulate 6510 bug, jmp(xxFF) fetches from same page.
-				-- Replace with nextAddrIncr if emulating 65C02 or later cpu.
-				nextAddr <= nextAddrIncrL; 
-			elsif indexOut(8) = '1' then
-				nextAddr <= nextAddrIncrH;
-			elsif opcInfo(opcRmw) = '1' then
-				nextAddr <= nextAddrHold;
-			end if;
-		when cycleRead2 =>
-			nextAddr <= nextAddrPc;
-			if opcInfo(opcRmw) = '1' then
-				nextAddr <= nextAddrHold;
-			end if;
-		when cycleRmw =>
-			nextAddr <= nextAddrHold;			
-		when cyclePreWrite =>
-			nextAddr <= nextAddrHold;			
-			if opcInfo(opcZeroPage) = '1' then
-				nextAddr <= nextAddrZPIndexed;
-			elsif indexOut(8) = '1' then
-				nextAddr <= nextAddrIncrH;
-			end if;							
-		when cycleWrite =>
-			nextAddr <= nextAddrPc;			
-		when cycleStack1 =>
-			nextAddr <= nextAddrStack;
-		when cycleStack2 =>
-			nextAddr <= nextAddrStack;
-		when cycleStack3 =>
-			nextAddr <= nextAddrStack;
-			if opcInfo(opcStackData) = '0' then
-				nextAddr <= nextAddrPc;
-			end if;				
-		when cycleStack4 =>
-			nextAddr <= nextAddrIrq;
-		when cycleJump =>
-			nextAddr <= nextAddrAbs;
-		when others =>
-			null;
+		when cycle2 =>					if opcInfo(opcStackAddr) = '1' or opcInfo(opcStackData) = '1' then
+												nextAddr <= nextAddrStack;
+											elsif opcInfo(opcAbsolute) = '1' then
+												nextAddr <= nextAddrIncr;
+											elsif opcInfo(opcZeroPage) = '1' then
+												nextAddr <= nextAddrZeroPage;
+											elsif opcInfo(opcIndirect) = '1' then
+												nextAddr <= nextAddrZeroPage;
+											elsif opcInfo(opcSecondByte) = '1' then
+												nextAddr <= nextAddrIncr;
+											else
+												nextAddr <= nextAddrHold;
+											end if;
+		when cycle3 =>					if (opcInfo(opcIndirect) = '1')	and (opcInfo(indexX) = '1') then
+												nextAddr <= nextAddrAbs;
+											else		
+												nextAddr <= nextAddrAbsIndexed;
+											end if;				
+		when cyclePreIndirect => 			nextAddr <= nextAddrZPIndexed;
+		when cycleIndirect =>				nextAddr <= nextAddrIncrL;
+		when cycleBranchTaken =>			nextAddr <= nextAddrRelative;
+		when cycleBranchPage => 	if T(7) = '0' then
+													nextAddr <= nextAddrIncrH;
+											else				
+													nextAddr <= nextAddrDecrH;
+											end if;
+		when cyclePreRead =>					nextAddr <= nextAddrZPIndexed;
+		when cycleRead =>						nextAddr <= nextAddrPc;
+											if opcInfo(opcJump) = '1' then
+													-- Emulate 6510 bug, jmp(xxFF) fetches from same page.
+													-- Replace with nextAddrIncr if emulating 65C02 or later cpu.
+													nextAddr <= nextAddrIncr;
+													--nextAddr <= nextAddrIncrL;	
+											elsif indexOut(8) = '1' then
+													nextAddr <= nextAddrIncrH;
+											elsif opcInfo(opcRmw) = '1' then
+													nextAddr <= nextAddrHold;
+											end if;
+		when cycleRead2 =>			nextAddr <= nextAddrPc;
+											if opcInfo(opcRmw) = '1' then
+												nextAddr <= nextAddrHold;
+											end if;
+		when cycleRmw =>				nextAddr <= nextAddrHold;			
+		when cyclePreWrite =>		nextAddr <= nextAddrHold;			
+											if opcInfo(opcZeroPage) = '1' then
+												nextAddr <= nextAddrZPIndexed;
+											elsif indexOut(8) = '1' then
+												nextAddr <= nextAddrIncrH;
+											end if;							
+		when cycleWrite =>			nextAddr <= nextAddrPc;			
+		when cycleStack1 =>			nextAddr <= nextAddrStack;
+		when cycleStack2 =>			nextAddr <= nextAddrStack;
+		when cycleStack3 =>			nextAddr <= nextAddrStack;
+											if opcInfo(opcStackData) = '0' then
+												nextAddr <= nextAddrPc;
+											end if;				
+		when cycleStack4 =>			nextAddr <= nextAddrIrq;
+		when cycleJump =>				nextAddr <= nextAddrAbs; 
+										
+		
+		when others =>					null;
 		end case;										
-		if reset = '1' then
+		
+		if reset = '0' then
 			nextAddr <= nextAddrReset;
-		end if;			
+		end if;
+		
 	end process;
+	
+	
+	
+	
+	
 	
 indexAlu: process(opcInfo, myAddr, T, X, Y)
 	begin
 		if opcInfo(indexX) = '1' then
 			indexOut <= (B"0" & T) + (B"0" & X);
 		elsif opcInfo(indexY) = '1' then
-			indexOut <= (B"0" & T) + (B"0" & Y);
+				indexOut <= (B"0" & T) + (B"0" & Y);	
 		elsif opcInfo(opcBranch) = '1' then			
 			indexOut <= (B"0" & T) + (B"0" & myAddr(7 downto 0));
 		else
@@ -1564,14 +1475,18 @@ calcAddr: process(clk)
 				when nextAddrIncrH => myAddr(15 downto 8) <= myAddrIncrH;
 				when nextAddrDecrH => myAddr(15 downto 8) <= myAddrDecrH;
 				when nextAddrPc => myAddr <= PC;
-				when nextAddrIrq =>
-					myAddr <= X"FFFE";
+				when nextAddrIrq =>myAddr <= X"FFFE";
 					if nmiReg = '0' then
 						myAddr <= X"FFFA";
 					end if;
 				when nextAddrReset => myAddr <= X"FFFC";
 				when nextAddrAbs => myAddr <= di & T;
-				when nextAddrAbsIndexed => myAddr <= di & indexOut(7 downto 0);
+				when nextAddrAbsIndexed =>--myAddr <= di & indexOut(7 downto 0);
+					if theOpcode = x"7C" then
+						myAddr <= (di & T) + (x"00"& X);
+					else
+						myAddr <= di & indexOut(7 downto 0);
+					end if;
 				when nextAddrZeroPage => myAddr <= "00000000" & di;
 				when nextAddrZPIndexed => myAddr <= "00000000" & indexOut(7 downto 0);
 				when nextAddrStack => myAddr <= "00000001" & S;
@@ -1585,13 +1500,31 @@ calcAddr: process(clk)
 	myAddrIncr <= myAddr + 1;
 	myAddrIncrH <= myAddr(15 downto 8) + 1;
 	myAddrDecrH <= myAddr(15 downto 8) - 1;
-
 	addr <= myAddr;
+	
+-- DMB This looked plain broken and inferred a latch
+--    
+--	calcsync: process(clk)
+--	begin
+--		
+--			if enable = '1' then
+--				case theCpuCycle is
+--				when opcodeFetch =>			sync <= '1';
+--				when others =>					sync <= '0';			
+--				end case;
+--			end if;
+--	end process;
 
-	debugA <= A;
-	debugX <= X;
-	debugY <= Y;
-	debugS <= S;
+   sync <= '1' when theCpuCycle = opcodeFetch else '0';
+	
+   sync_irq <= irqActive;
+
+   Regs <= std_logic_vector(PC) &
+           "00000001" & std_logic_vector(S)& 
+           N & V & R & B & D & I & Z & C & 
+           std_logic_vector(Y) & 
+           std_logic_vector(X) & 
+           std_logic_vector(A);
 	
 end architecture;
 

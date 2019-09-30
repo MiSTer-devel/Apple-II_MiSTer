@@ -149,10 +149,11 @@ parameter CONF_STR = {
 	"O23,Display,Color,B&W,Green,Amber;",
 	"O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
 	"-;",
+	"O5,CPU,6502,65C02;",
 	"O4,Mocking board,Yes,No;",
 	"O78,Stereo mix,none,25%,50%,100%;",
 	"-;",
-	"R0,Reset;",
+	"R0,Cold Reset;",
 	"J,Fire 1,Fire 2;",
 	"V,v",`BUILD_DATE
 };
@@ -184,6 +185,7 @@ wire        joya_en = |joya;
 
 
 wire [10:0] ps2_key;
+wire        kbd_clk, kbd_data;
 
 reg  [31:0] sd_lba;
 reg         sd_rd;
@@ -194,7 +196,7 @@ wire        sd_buff_wr;
 wire        img_mounted;
 wire [63:0] img_size;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
+hps_io #(.STRLEN($size(CONF_STR)>>3), .PS2DIV(1000)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -218,7 +220,9 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.ioctl_wait(0),
 
-	.ps2_key(ps2_key),
+	//.ps2_key(ps2_key),
+	.ps2_kbd_clk_out(kbd_clk),
+	.ps2_kbd_data_out(kbd_data),
 
 	.joystick_0(joystick_0),
 	.joystick_1(joystick_1),
@@ -226,17 +230,12 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.joystick_analog_1(joystick_a1)
 );
 
-/////////////////  RESET  /////////////////////////
-
-wire reset = RESET | status[0] | buttons[1];
-
 ///////////////////////////////////////////////////
 
-wire [7:0] audio_l, audio_r;
-wire speaker;
+wire [9:0] audio_l, audio_r;
 
-assign AUDIO_L = {1'b0, audio_l, 7'd0} + {2'b0, speaker, 13'd0};
-assign AUDIO_R = {1'b0, audio_r, 7'd0} + {2'b0, speaker, 13'd0};
+assign AUDIO_L = {1'b0, audio_l, 5'd0};
+assign AUDIO_R = {1'b0, audio_r, 5'd0};
 assign AUDIO_S = 0;
 assign AUDIO_MIX = status[8:7];
 
@@ -254,41 +253,44 @@ apple2_top apple2_top
 (
 	.CLK_14M(clk_sys),
 	.CPU_WAIT(cpu_wait),
+	.cpu_type(status[5]),
 
-	.reset_in(reset),
+	.reset_cold(RESET | status[0]),
+	.reset_warm(buttons[1]),
 
-	.VGA_HBL(HBlank),
-	.VGA_VBL(VBlank),
-	.VGA_HS(HSync),
-	.VGA_VS(VSync),
-	.VGA_R(R),
-	.VGA_G(G),
-	.VGA_B(B),
+	.hblank(HBlank),
+	.vblank(VBlank),
+	.hsync(HSync),
+	.vsync(VSync),
+	.r(R),
+	.g(G),
+	.b(B),
 	.SCREEN_MODE(status[3:2]),
 
 	.AUDIO_L(audio_l),
 	.AUDIO_R(audio_r),
-	.SPEAKER(speaker),
+	.TAPE_IN(0),
 
-	.ps2_key(ps2_key),
+	.ps2_clk(kbd_clk),
+	.ps2_data(kbd_data),
 
 	.joy(joy),
 	.joy_an(joya),
 
 	.mb_enabled(~status[4]),
 
-	
 	.TRACK(track),
 	.TRACK_RAM_ADDR({track_sec, sd_buff_addr}),
 	.TRACK_RAM_DI(sd_buff_dout),
 	.TRACK_RAM_WE(sd_buff_wr),
 
 	.ram_addr(ram_addr),
-	.ram_dout(ram_dout),
-	.ram_din(ram_din),
+	.ram_do(ram_dout),
+	.ram_di(ram_din),
 	.ram_we(ram_we),
+	.ram_aux(ram_aux),
 
-	.LED(led)
+	.DISK_ACT(led)
 );
 
 wire [2:0] scale = status[11:9];
@@ -312,18 +314,29 @@ video_mixer #(.LINE_LENGTH(580)) video_mixer
 	.mono(0)
 );
 
-wire [17:0] ram_addr;
-reg   [7:0] ram_dout;
+wire [15:0] ram_addr;
+reg  [15:0] ram_dout;
 wire  [7:0]	ram_din;
 wire        ram_we;
+wire        ram_aux;
 
-reg [7:0] ram[262144]; //om-nom-nom :)
+reg [7:0] ram0[65536];
 always @(posedge clk_sys) begin
-	if(ram_we) begin
-		ram[ram_addr] <= ram_din;
-		ram_dout <= ram_din;
+	if(ram_we & ~ram_aux) begin
+		ram0[ram_addr] <= ram_din;
+		ram_dout[7:0]  <= ram_din;
 	end else begin
-		ram_dout <= ram[ram_addr];
+		ram_dout[7:0]  <= ram0[ram_addr];
+	end
+end
+
+reg [7:0] ram1[65536];
+always @(posedge clk_sys) begin
+	if(ram_we & ram_aux) begin
+		ram1[ram_addr] <= ram_din;
+		ram_dout[15:8] <= ram_din;
+	end else begin
+		ram_dout[15:8] <= ram1[ram_addr];
 	end
 end
 

@@ -70,7 +70,7 @@ entity disk_ii is
   port (
     CLK_14M        : in std_logic;
     CLK_2M         : in std_logic;   
-    PRE_PHASE_ZERO : in std_logic;
+    PHASE_ZERO     : in std_logic;
     IO_SELECT      : in std_logic;      -- e.g., C600 - C6FF ROM
     DEVICE_SELECT  : in std_logic;      -- e.g., C0E0 - C0EF I/O locations
     RESET          : in std_logic;
@@ -93,6 +93,7 @@ architecture rtl of disk_ii is
   signal drive_on : std_logic;
   signal drive2_select : std_logic;
   signal q6, q7 : std_logic;
+  signal CLK_2M_D: std_logic;
 
   signal rom_dout : unsigned(7 downto 0);
 
@@ -117,9 +118,9 @@ architecture rtl of disk_ii is
 
 begin
 
-  interpret_io : process (CLK_2M)
+  interpret_io : process (CLK_14M)
   begin
-    if rising_edge(CLK_2M) then
+    if rising_edge(CLK_14M) then
       if reset = '1' then
         motor_phase <= (others => '0');
         drive_on <= '0';
@@ -127,7 +128,7 @@ begin
         q6 <= '0';
         q7 <= '0';
       else
-        if PRE_PHASE_ZERO = '1' and DEVICE_SELECT = '1' then
+        if DEVICE_SELECT = '1' then
           if A(3) = '0' then                      -- C080 - C087
             motor_phase(TO_INTEGER(A(2 downto 1))) <= A(0);
           else
@@ -250,16 +251,17 @@ begin
   end process;
 
   -- Go to the next byte when the disk is accessed or if the counter times out
-  read_head : process (CLK_2M)
+  read_head : process (CLK_14M, reset)
   variable byte_delay : unsigned(5 downto 0);  -- Accounts for disk spin rate
   begin
-    if rising_edge(CLK_2M) then
-      if reset = '1' then
+    if reset = '1' then
         track_byte_addr <= (others => '0');
         byte_delay := (others => '0');
-      else
+    elsif rising_edge(CLK_14M) then
+      CLK_2M_D <= CLK_2M;
+      if CLK_2M = '1' and CLK_2M_D = '0' then
         byte_delay := byte_delay - 1;
-        if (read_disk = '1' and PRE_PHASE_ZERO = '1') or byte_delay = 0 then
+        if (read_disk = '1' and PHASE_ZERO = '1') or byte_delay = 0 then
           byte_delay := (others => '0');
           if track_byte_addr = X"33FE" then
             track_byte_addr <= (others => '0');

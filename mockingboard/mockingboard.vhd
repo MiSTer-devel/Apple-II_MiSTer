@@ -11,28 +11,27 @@
 
 library ieee ;
   use ieee.std_logic_1164.all ;
-  use ieee.std_logic_unsigned.all;
+--  use ieee.std_logic_unsigned.all;
   use ieee.numeric_std.all;
   
   
 entity MOCKINGBOARD is
   port (
-  
+    CLK_14M           : in std_logic;
+    PHASE_ZERO        : in std_logic;
     I_ADDR            : in std_logic_vector(7 downto 0);
     I_DATA            : in std_logic_vector(7 downto 0);
     O_DATA            : out std_logic_vector(7 downto 0);
     
     I_RW_L            : in std_logic;
     O_IRQ_L           : out std_logic;
+    O_NMI_L           : out std_logic;
     I_IOSEL_L         : in std_logic;
     I_RESET_L         : in std_logic;
     I_ENA_H           : in std_logic;     
     
-    O_AUDIO_L         : out std_logic_vector(7 downto 0);
-    O_AUDIO_R         : out std_logic_vector(7 downto 0);
-    CLK_VIA           : in std_logic;
-    CLK_PSG           : in std_logic;
-    I_P2_H            : in std_logic
+    O_AUDIO_L         : out std_logic_vector(9 downto 0);
+    O_AUDIO_R         : out std_logic_vector(9 downto 0)
     );
  end;
  
@@ -43,172 +42,196 @@ entity MOCKINGBOARD is
   signal o_pb_r           : std_logic_vector(7 downto 0);
   
   signal i_psg_r          : std_logic_vector(7 downto 0);
+  signal o_psg_r          : std_logic_vector(7 downto 0);
   signal i_psg_l          : std_logic_vector(7 downto 0);
+  signal o_psg_l          : std_logic_vector(7 downto 0);
+
+  signal o_psg_al         : std_logic_vector(7 downto 0);
+  signal o_psg_bl         : std_logic_vector(7 downto 0);
+  signal o_psg_cl         : std_logic_vector(7 downto 0);
+  signal o_psg_ol         : std_logic_vector(9 downto 0);
+  
+  signal o_psg_ar         : std_logic_vector(7 downto 0);
+  signal o_psg_br         : std_logic_vector(7 downto 0);
+  signal o_psg_cr         : std_logic_vector(7 downto 0);
+  signal o_psg_or         : std_logic_vector(9 downto 0);
   
   signal o_data_l          : std_logic_vector(7 downto 0);
   signal o_data_r          : std_logic_vector(7 downto 0);
   
-  signal lvia_read        : std_logic;
-  signal rvia_read        : std_logic;
+  signal lirq             : std_logic;
+  signal rirq             : std_logic;
   
-  signal lirq_l           : std_logic;
-  signal rirq_l           : std_logic;
+  signal PSG_EN   : std_logic;
+  signal VIA_CE_F, VIA_CE_R, PHASE_ZERO_D : std_logic;
 
-  
+  component YM2149
+  port (
+    CLK         : in  std_logic;
+    CE          : in  std_logic;
+    RESET       : in  std_logic;
+    BDIR        : in  std_logic; -- Bus Direction (0 - read , 1 - write)
+    BC          : in  std_logic; -- Bus control
+    DI          : in  std_logic_vector(7 downto 0);
+    DO          : out std_logic_vector(7 downto 0);
+    CHANNEL_A   : out std_logic_vector(7 downto 0);
+    CHANNEL_B   : out std_logic_vector(7 downto 0);
+    CHANNEL_C   : out std_logic_vector(7 downto 0);
+
+    SEL         : in  std_logic;
+    MODE        : in  std_logic;
+
+    ACTIVE      : out std_logic_vector(5 downto 0);
+
+    IOA_in      : in  std_logic_vector(7 downto 0);
+    IOA_out     : out std_logic_vector(7 downto 0);
+
+    IOB_in      : in  std_logic_vector(7 downto 0);
+    IOB_out     : out std_logic_vector(7 downto 0)
+    );
+  end component;
+
 begin
 
-  O_DATA <= o_data_l when lvia_read = '1' else o_data_r when rvia_read = '1' else (others=>'Z');
-  
-  lvia_read <= I_RW_L and not I_ADDR(7);
-  rvia_read <= I_RW_L and I_ADDR(7);
-  
-  O_IRQ_L <= lirq_l and rirq_l;
+  O_DATA <= o_data_l when I_ADDR(7) = '0' else o_data_r;
+  O_IRQ_L <= not lirq or not I_ENA_H;
+  O_NMI_L <= not rirq or not I_ENA_H;
+
+  PSG_EN <= '1' when PHASE_ZERO = '0' and PHASE_ZERO_D = '1' else '0';
+  VIA_CE_R <= '1' when PHASE_ZERO = '1' and PHASE_ZERO_D = '0' else '0';
+  VIA_CE_F <= '1' when PHASE_ZERO = '0' and PHASE_ZERO_D = '1' else '0';
+
+  process (CLK_14M) begin
+    if rising_edge(CLK_14M) then
+        PHASE_ZERO_D <= PHASE_ZERO;
+    end if;
+  end process;
 
 -- Left Channel Combo
+  m6522_left : work.via6522
+    port map (
+      clock       => clk_14M,
+      rising      => VIA_CE_R,
+      falling     => VIA_CE_F,
+      reset       => not I_RESET_L,
 
-  m6522_left : work.M6522
-    port map (
-      I_RS        => I_ADDR(3 downto 0),
-      I_DATA      => I_DATA,
-      O_DATA      => o_data_l,
-      O_DATA_OE_L => open,
-  
-      I_RW_L      => I_RW_L,
-      I_CS1       => not I_ADDR(7),
-      I_CS2_L     => I_IOSEL_L,
-  
-      O_IRQ_L     => lirq_l,
-      -- port a
-      I_CA1       => '0',
-      I_CA2       => '0',
-      O_CA2       => open,
-      O_CA2_OE_L  => open,
-  
-      I_PA        => (others => '0'),
-      O_PA        => i_psg_l,
-      O_PA_OE_L   => open,
-  
-      -- port b
-      I_CB1       => '0',
-      O_CB1       => open,
-      O_CB1_OE_L  => open,
-  
-      I_CB2       => '0',
-      O_CB2       => open,
-      O_CB2_OE_L  => open,
-  
-      I_PB        => (others => '0'),
-      O_PB        => o_pb_l,
-      O_PB_OE_L   => open,
-  
-      I_P2_H      => I_P2_H,
-      RESET_L     => I_RESET_L,
-      ENA_4       => '1',
-      CLK         => CLK_VIA and I_ENA_H
-      );
-      
-      
-  psg_left : work.YM2149
-    port map (
-      -- data bus
-      I_DA        => i_psg_l,
-      O_DA        => open,
-      O_DA_OE_L   => open,
-      -- control
-      I_A9_L      => '0', -- /A9 pulled down internally
-      I_A8        => '1',
-      I_BDIR      => o_pb_l(1),
-      I_BC2       => '1',
-      I_BC1       => o_pb_l(0),
-      I_SEL_L     => '1', -- /SEL is high for AY-3-8912 compatibility
-    
-      O_AUDIO     => O_AUDIO_L,
-      -- port a
-      I_IOA       => (others => '0'), -- port A unused
-      O_IOA       => open,
-      O_IOA_OE_L  => open,
-      -- port b
-      I_IOB       => (others => '0'), -- port B unused
-      O_IOB       => open,
-      O_IOB_OE_L  => open,
-      --
-      ENA         => '1',
-      RESET_L     => o_pb_l(2),
-      CLK         => CLK_PSG and I_ENA_H
+      addr        => I_ADDR(3 downto 0),
+      wen         => not I_RW_L and not I_ADDR(7) and not I_IOSEL_L and I_ENA_H,
+      ren         => I_RW_L and not I_ADDR(7) and not I_IOSEL_L and I_ENA_H,
+      data_in     => I_DATA,
+      data_out    => o_data_l,
+
+      phi2_ref    => open,
+
+      port_a_o    => i_psg_l,
+      port_a_t    => open,
+      port_a_i    => o_psg_l,
+
+      port_b_o    => o_pb_l,
+      port_b_t    => open,
+      port_b_i    => (others => '1'),
+
+      ca1_i       => '1',
+      ca2_o       => open,
+      ca2_i       => '1',
+      cb1_o       => open,
+      cb1_i       => '1',
+      cb1_t       => open,
+      cb2_o       => open,
+      cb2_i       => '1',
+      cb2_t       => open,
+      irq         => lirq
       );
 
+  psg_left: YM2149
+  port map (
+    CLK         => CLK_14M,
+    CE          => PSG_EN and I_ENA_H,
+    RESET       => not o_pb_l(2),
+    BDIR        => o_pb_l(1),
+    BC          => o_pb_l(0),
+    DI          => i_psg_l,
+    DO          => o_psg_l,
+    CHANNEL_A   => o_psg_al,
+    CHANNEL_B   => o_psg_bl,
+    CHANNEL_C   => o_psg_cl,
+
+    SEL         => '0',
+    MODE        => '0',
+
+    ACTIVE      => open,
+
+    IOA_in      => (others => '0'),
+    IOA_out     => open,
+
+    IOB_in      => (others => '0'),
+    IOB_out     => open
+    );
+
+  O_AUDIO_L <= std_logic_vector(unsigned("00" & o_psg_al) + unsigned("00" & o_psg_bl) + unsigned("00" & o_psg_cl));
 
 -- Right Channel Combo
+  m6522_right : work.via6522
+    port map (
+      clock       => clk_14M,
+      rising      => VIA_CE_R,
+      falling     => VIA_CE_F,
+      reset       => not I_RESET_L,
 
-  m6522_right : work.M6522
-    port map (
-      I_RS        => I_ADDR(3 downto 0),
-      I_DATA      => I_DATA,
-      O_DATA      => o_data_r,
-      O_DATA_OE_L => open,
-  
-      I_RW_L      => I_RW_L,
-      I_CS1       => I_ADDR(7),
-      I_CS2_L     => I_IOSEL_L,
-  
-      O_IRQ_L     => rirq_l,
-      -- port a
-      I_CA1       => '0',
-      I_CA2       => '0',
-      O_CA2       => open,
-      O_CA2_OE_L  => open,
-  
-      I_PA        => (others => '0'),
-      O_PA        => i_psg_r,
-      O_PA_OE_L   => open,
-  
-      -- port b
-      I_CB1       => '0',
-      O_CB1       => open,
-      O_CB1_OE_L  => open,
-  
-      I_CB2       => '0',
-      O_CB2       => open,
-      O_CB2_OE_L  => open,
-  
-      I_PB        => (others => '0'),
-      O_PB        => o_pb_r,
-      O_PB_OE_L   => open,
-  
-      I_P2_H      => I_P2_H,
-      RESET_L     => I_RESET_L,
-      ENA_4       => '1',
-      CLK         => CLK_VIA and I_ENA_H
+      addr        => I_ADDR(3 downto 0),
+      wen         => not I_RW_L and I_ADDR(7) and not I_IOSEL_L and I_ENA_H,
+      ren         => I_RW_L and I_ADDR(7) and not I_IOSEL_L and I_ENA_H,
+      data_in     => I_DATA,
+      data_out    => o_data_r,
+
+      phi2_ref    => open,
+
+      port_a_o    => i_psg_r,
+      port_a_t    => open,
+      port_a_i    => o_psg_r,
+
+      port_b_o    => o_pb_r,
+      port_b_t    => open,
+      port_b_i    => (others => '1'),
+
+      ca1_i       => '1',
+      ca2_o       => open,
+      ca2_i       => '1',
+      cb1_o       => open,
+      cb1_i       => '1',
+      cb1_t       => open,
+      cb2_o       => open,
+      cb2_i       => '1',
+      cb2_t       => open,
+      irq         => rirq
       );
-      
-      
-  psg_right : work.YM2149
-    port map (
-      -- data bus
-      I_DA        => i_psg_r,
-      O_DA        => open,
-      O_DA_OE_L   => open,
-      -- control
-      I_A9_L      => '0', -- /A9 pulled down internally
-      I_A8        => '1',
-      I_BDIR      => o_pb_r(1),
-      I_BC2       => '1',
-      I_BC1       => o_pb_r(0),
-      I_SEL_L     => '1', -- /SEL is high for AY-3-8912 compatibility
-    
-      O_AUDIO     => O_AUDIO_R,
-      -- port a
-      I_IOA       => (others => '0'), -- port A unused
-      O_IOA       => open,
-      O_IOA_OE_L  => open,
-      -- port b
-      I_IOB       => (others => '0'), -- port B unused
-      O_IOB       => open,
-      O_IOB_OE_L  => open,
-      --
-      ENA         => '1',
-      RESET_L     => o_pb_r(2),
-      CLK         => CLK_PSG and I_ENA_H
-      );
+
+  psg_right: YM2149
+  port map (
+    CLK         => CLK_14M,
+    CE          => PSG_EN and I_ENA_H,
+    RESET       => not o_pb_r(2),
+    BDIR        => o_pb_r(1),
+    BC          => o_pb_r(0),
+    DI          => i_psg_r,
+    DO          => o_psg_r,
+    CHANNEL_A   => o_psg_ar,
+    CHANNEL_B   => o_psg_br,
+    CHANNEL_C   => o_psg_cr,
+
+    SEL         => '0',
+    MODE        => '0',
+
+    ACTIVE      => open,
+
+    IOA_in      => (others => '0'),
+    IOA_out     => open,
+
+    IOB_in      => (others => '0'),
+    IOB_out     => open
+    );
+
+  O_AUDIO_R <= std_logic_vector(unsigned("00" & o_psg_ar) + unsigned("00" & o_psg_br) + unsigned("00" & o_psg_cr));
+
 
 end architecture RTL;

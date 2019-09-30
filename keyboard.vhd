@@ -1,5 +1,9 @@
 -------------------------------------------------------------------------------
 --
+-- PS/2 Keyboard interface for the Apple //e
+-- Szombathelyi György
+--
+-- Based on
 -- PS/2 Keyboard interface for the Apple ][
 --
 -- Stephen A. Edwards, sedwards@cs.columbia.edu
@@ -11,45 +15,87 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 entity keyboard is
-  
+
   port (
-    ps2_key  : in std_logic_vector(10 downto 0);
+    PS2_Clk  : in std_logic;            -- From PS/2 port
+    PS2_Data : in std_logic;            -- From PS/2 port
     CLK_14M  : in std_logic;
     reads    : in std_logic;            -- Read strobe
     reset    : in std_logic;
+    akd      : buffer std_logic;        -- Any key down
     K        : out unsigned(7 downto 0) -- Latched, decoded keyboard data
     );
 end keyboard;
 
 architecture rtl of keyboard is
 
-  signal stb                : std_logic;
-  signal code, latched_code : std_logic_vector(7 downto 0);
+  signal rom_addr           : std_logic_vector(10 downto 0);
+  signal rom_out            : unsigned(7 downto 0);
+  signal junction_code      : std_logic_vector(7 downto 0);
+  signal code, latched_code : unsigned(7 downto 0);
+  signal ext, latched_ext   : std_logic;
   signal code_available     : std_logic;  
-  signal ascii              : unsigned(7 downto 0);  -- decoded
-  signal shifted_code       : std_logic_vector(11 downto 0);
-  
+
   signal key_pressed        : std_logic;  -- Key pressed & not read
-  signal ctrl, shift        : std_logic;
+  signal ctrl,shift,caplock : std_logic;
+
+  signal rep_timer          : unsigned(22 downto 0);
 
   -- Special PS/2 keyboard codes
-  constant LEFT_SHIFT       : std_logic_vector(7 downto 0) := X"12";
-  constant RIGHT_SHIFT      : std_logic_vector(7 downto 0) := X"59";
-  constant LEFT_CTRL        : std_logic_vector(7 downto 0) := X"14";
+  constant KEY_UP_CODE      : unsigned(7 downto 0) := X"F0";
+  constant EXTENDED_CODE    : unsigned(7 downto 0) := X"E0";
+  constant LEFT_SHIFT       : unsigned(7 downto 0) := X"12";
+  constant RIGHT_SHIFT      : unsigned(7 downto 0) := X"59";
+  constant LEFT_CTRL        : unsigned(7 downto 0) := X"14";
+  constant CAPS_LOCK        : unsigned(7 downto 0) := X"58";
 
   type states is (IDLE,
                   HAVE_CODE,
                   DECODE,
+                  EXTENDED_KEY,
+                  GOT_KEY_UP_CODE,
+                  GOT_KEY_UP2,
+                  GOT_KEY_UP3,
                   KEY_UP,
-                  NORMAL_KEY
+                  NORMAL_KEY,
+                  KEY_READY1,
+                  KEY_READY
                   );
 
   signal state, next_state : states;
 
 begin
 
-  K <= key_pressed & "00" & ascii(4 downto 0) when ctrl = '1' else
-       key_pressed & ascii(6 downto 0);
+  keyboard_rom : work.spram
+  generic map (11,8,"roms/keyboard.mif")
+  port map (
+   address => std_logic_vector(rom_addr),
+   clock => CLK_14M,
+   data => (others=>'0'),
+   wren => '0',
+   unsigned(q) => rom_out);
+
+  ps2_controller : entity work.PS2_Ctrl port map (
+    Clk       => CLK_14M,
+    Reset     => reset,
+    PS2_Clk   => PS2_Clk,
+    PS2_Data  => PS2_Data,
+    DoRead    => code_available,
+    Scan_DAV  => code_available,
+    Scan_Code => code);
+
+  K <= key_pressed & rom_out(6 downto 0);
+
+  caplock_ctrl : process (CLK_14M, reset)
+  begin
+    if reset = '1' then
+      caplock <= '0';
+    elsif rising_edge(CLK_14M) then
+      if state = KEY_UP and code = CAPS_LOCK then
+        caplock <= not caplock;
+      end if;
+    end if;
+  end process;
 
   shift_ctrl : process (CLK_14M, reset)
   begin
@@ -78,22 +124,39 @@ begin
     if reset = '1' then
       state <= IDLE;
       latched_code <= (others => '0');
+      ext <= '0';
+      latched_ext <= '0';
       key_pressed <= '0';
     elsif rising_edge(CLK_14M) then
-      code_available <= stb xor ps2_key(10);
       state <= next_state;
       if reads = '1' then key_pressed <= '0'; end if;
-      if state = NORMAL_KEY then
-        latched_code <= code ;
-        key_pressed <= '1';
+      if state = GOT_KEY_UP_CODE then
+        ext <= '0';
+        akd <= '0';
       end if;
-      if state = HAVE_CODE then
-        stb <= ps2_key(10);
+      if state = EXTENDED_KEY then
+        ext <= '1';
+      end if;
+      if state = NORMAL_KEY then
+        -- set up keyboard ROM read address
+        latched_code <= code ;
+        latched_ext <= ext;
+      end if;
+      if state = KEY_READY and junction_code /= x"FF" then
+        -- key code ready from ROM
+         akd <= '1';
+         key_pressed <= '1';
+         rep_timer <= to_unsigned(7000000, 23); -- 0.5s
+      end if;
+      if akd = '1' then
+         rep_timer <= rep_timer - 1;
+         if rep_timer = 0 then
+            rep_timer <= to_unsigned(933333, 23); -- 1/15s
+            key_pressed <= '1';
+         end if;
       end if;
     end if;
   end process fsm;
-  
-  code <= ps2_key(7 downto 0);
 
   fsm_next_state : process (code, code_available, state)
   begin
@@ -101,140 +164,142 @@ begin
     case state is
       when IDLE =>
         if code_available = '1' then next_state <= HAVE_CODE; end if;
-        
+
       when HAVE_CODE =>
         next_state <= DECODE;
-        
+
       when DECODE =>
-        if ps2_key(9) = '0' then
-          next_state <= KEY_UP;
-        elsif code = LEFT_SHIFT or code = RIGHT_SHIFT or code = LEFT_CTRL then
+        if code = KEY_UP_CODE then
+          next_state <= GOT_KEY_UP_CODE;
+        elsif code = EXTENDED_CODE then
+          next_state <= EXTENDED_KEY;
+        elsif code = LEFT_SHIFT or code = RIGHT_SHIFT or code = LEFT_CTRL or code = CAPS_LOCK then
           next_state <= IDLE;
         else
           next_state <= NORMAL_KEY;
         end if;
-        
-      when KEY_UP | NORMAL_KEY =>
+
+      when EXTENDED_KEY =>
+        next_state <= IDLE;
+
+      when GOT_KEY_UP_CODE =>
+        next_state <= GOT_KEY_UP2;
+
+      when GOT_KEY_UP2 =>
+        next_state <= GOT_KEY_UP3;
+
+      when GOT_KEY_UP3 =>
+        if code_available = '1' then
+          next_state <= KEY_UP;
+        end if;
+
+      when KEY_UP =>
+        next_state <= IDLE;
+
+      when NORMAL_KEY =>
+        next_state <= KEY_READY1;
+
+      when KEY_READY1 =>
+        next_state <= KEY_READY;
+
+      when KEY_READY =>
         next_state <= IDLE;
     end case;
   end process fsm_next_state;
 
-  -- PS/2 scancode to ASCII translation
+  -- PS/2 scancode to Keyboard ROM address translation
+  rom_addr <= '0' & caplock & junction_code(6 downto 0) & not ctrl & not shift;
 
-  shifted_code <= "000" & shift & latched_code;
-  
-  with shifted_code select
-    ascii <=
-     X"08" when X"066", -- Backspace ("backspace" key)
-     X"08" when X"166", -- Backspace ("backspace" key)
-     X"09" when X"00d", -- Horizontal Tab
-     X"09" when X"10d", -- Horizontal Tab
-     X"0d" when X"05a", -- Carriage return ("enter" key)
-     X"0d" when X"15a", -- Carriage return ("enter" key)
-     X"1b" when X"076", -- Escape ("esc" key)
-     X"1b" when X"176", -- Escape ("esc" key)
-     X"20" when X"029", -- Space
-     X"20" when X"129", -- Space
-     X"21" when X"116", -- !
-     X"22" when X"152", -- "
-     X"23" when X"126", -- #
-     X"24" when X"125", -- $
-     X"25" when X"12e", --
-     X"26" when X"13d", --
-     X"27" when X"052", --
-     X"28" when X"146", --
-     X"29" when X"145", --
-     X"2a" when X"13e", -- *
-     X"2b" when X"155", -- +
-     X"2c" when X"041", -- ,
-     X"2d" when X"04e", -- -
-     X"2e" when X"049", -- .
-     X"2f" when X"04a", -- /
-     X"30" when X"045", -- 0
-     X"31" when X"016", -- 1
-     X"32" when X"01e", -- 2
-     X"33" when X"026", -- 3
-     X"34" when X"025", -- 4
-     X"35" when X"02e", -- 5
-     X"36" when X"036", -- 6
-     X"37" when X"03d", -- 7
-     X"38" when X"03e", -- 8
-     X"39" when X"046", -- 9
-     X"3a" when X"14c", -- :
-     X"3b" when X"04c", -- ;
-     X"3c" when X"141", -- <
-     X"3d" when X"055", -- =
-     X"3e" when X"149", -- >
-     X"3f" when X"14a", -- ?
-     X"40" when X"11e", -- @
-     X"41" when X"11c", -- A
-     X"42" when X"132", -- B
-     X"43" when X"121", -- C
-     X"44" when X"123", -- D
-     X"45" when X"124", -- E
-     X"46" when X"12b", -- F
-     X"47" when X"134", -- G
-     X"48" when X"133", -- H
-     X"49" when X"143", -- I
-     X"4a" when X"13b", -- J
-     X"4b" when X"142", -- K
-     X"4c" when X"14b", -- L
-     X"4d" when X"13a", -- M
-     X"4e" when X"131", -- N
-     X"4f" when X"144", -- O
-     X"50" when X"14d", -- P
-     X"51" when X"115", -- Q
-     X"52" when X"12d", -- R
-     X"53" when X"11b", -- S
-     X"54" when X"12c", -- T
-     X"55" when X"13c", -- U
-     X"56" when X"12a", -- V
-     X"57" when X"11d", -- W
-     X"58" when X"122", -- X
-     X"59" when X"135", -- Y
-     X"5a" when X"11a", -- Z
-     X"5b" when X"054", -- [
-     X"5c" when X"05d", -- \
-     X"5d" when X"05b", -- ]
-     X"5e" when X"136", -- ^
-     X"5f" when X"14e", -- _
-     X"60" when X"00e", -- `
-     X"41" when X"01c", -- A
-     X"42" when X"032", -- B
-     X"43" when X"021", -- C
-     X"44" when X"023", -- D
-     X"45" when X"024", -- E
-     X"46" when X"02b", -- F
-     X"47" when X"034", -- G
-     X"48" when X"033", -- H
-     X"49" when X"043", -- I
-     X"4a" when X"03b", -- J
-     X"4b" when X"042", -- K
-     X"4c" when X"04b", -- L
-     X"4d" when X"03a", -- M
-     X"4e" when X"031", -- N
-     X"4f" when X"044", -- O
-     X"50" when X"04d", -- P
-     X"51" when X"015", -- Q
-     X"52" when X"02d", -- R
-     X"53" when X"01b", -- S
-     X"54" when X"02c", -- T
-     X"55" when X"03c", -- U
-     X"56" when X"02a", -- V
-     X"57" when X"01d", -- W
-     X"58" when X"022", -- X
-     X"59" when X"035", -- Y
-     X"5a" when X"01a", -- Z
-     X"7b" when X"154", -- {
-     X"7c" when X"15d", -- |
-     X"7d" when X"15b", -- }
-     X"7e" when X"10e", -- ~
-     X"7f" when X"071", -- (Delete OR DEL on numeric keypad)
-     X"15" when X"074", -- right arrow (cntrl U)
-     X"08" when X"06b", -- left arrow (BS)
-     X"0B" when X"075", -- (up arrow)
-     X"0A" when X"072", -- (down arrow, ^J, LF)
-     X"7f" when X"171", -- (Delete OR DEL on numeric keypad)
-     X"00" when others; 
+  with latched_ext & latched_code select
+    junction_code <=
+     X"00" when '0'&X"76", -- Escape ("esc" key)
+     X"01" when '0'&X"16", -- 1
+     X"02" when '0'&X"1e", -- 2
+     X"03" when '0'&X"26", -- 3
+     X"04" when '0'&X"25", -- 4
+     X"05" when '0'&X"36", -- 6
+     X"06" when '0'&X"2e", -- 5
+     X"07" when '0'&X"3d", -- 7
+     X"08" when '0'&X"3e", -- 8
+     X"09" when '0'&X"46", -- 9
+
+     X"0A" when '0'&X"0d", -- Horizontal Tab
+     X"0B" when '0'&X"15", -- Q
+     X"0C" when '0'&X"1d", -- W
+     X"0D" when '0'&X"24", -- E
+     X"0E" when '0'&X"2d", -- R
+     X"0F" when '0'&X"35", -- Y
+     X"10" when '0'&X"2c", -- T
+     X"11" when '0'&X"3c", -- U
+     X"12" when '0'&X"43", -- I
+     X"13" when '0'&X"44", -- O
+
+     X"14" when '0'&X"1c", -- A
+     X"15" when '0'&X"23", -- D
+     X"16" when '0'&X"1b", -- S
+     X"17" when '0'&X"33", -- H
+     X"18" when '0'&X"2b", -- F
+     X"19" when '0'&X"34", -- G
+     X"1A" when '0'&X"3b", -- J
+     X"1B" when '0'&X"42", -- K
+     X"1C" when '0'&X"4c", -- ;
+     X"1D" when '0'&X"4b", -- L
+
+     X"1E" when '0'&X"1a", -- Z
+     X"1F" when '0'&X"22", -- X
+     X"20" when '0'&X"21", -- C
+     X"21" when '0'&X"2a", -- V
+     X"22" when '0'&X"32", -- B
+     X"23" when '0'&X"31", -- N
+     X"24" when '0'&X"3a", -- M
+     X"25" when '0'&X"41", -- ,
+     X"26" when '0'&X"49", -- .
+     X"27" when '0'&X"4a", -- /
+
+     x"28" when '1'&x"4a", -- KP /
+--     X"29" when '1'&x"6b", -- KP Left
+     X"2A" when '0'&x"70", -- KP 0
+     X"2B" when '0'&x"69", -- KP 1
+     X"2C" when '0'&x"72", -- KP 2
+     X"2D" when '0'&x"7a", -- KP 3
+     X"2E" when '0'&X"5d", -- \
+     X"2F" when '0'&X"55", -- =
+     X"30" when '0'&X"45", -- 0
+     X"31" when '0'&X"4e", -- -
+
+--     x"32" when x"", -- KP )
+--     X"33" when X"76", -- KP Escape ("esc" key)
+     X"34" when '0'&x"6B", -- KP 4
+     X"35" when '0'&x"73", -- KP 5
+     X"36" when '0'&x"74", -- KP 6
+     X"37" when '0'&x"6C", -- KP 7
+     X"38" when '0'&X"0e", -- `
+     X"39" when '0'&X"4d", -- P
+     X"3A" when '0'&X"54", -- [
+     X"3B" when '0'&X"5b", -- ]
+
+     X"3C" when '0'&X"7c", -- KP *
+--     X"3D" when '1'&X"74", -- KP Right
+     X"3E" when '0'&X"75", -- KP 8
+     X"3F" when '0'&X"7D", -- KP 9
+     X"40" when '0'&X"71", -- KP .
+     X"41" when '0'&X"79", -- KP +
+     X"42" when '0'&X"5a", -- Carriage return ("enter" key)
+     X"43" when '1'&X"75", -- (up arrow)
+     X"44" when '0'&X"29", -- Space
+     X"45" when '0'&X"52", -- '
+
+--     X"46" when X"4a", -- ?
+--     X"47" when X"29", -- KP Space
+--     X"48" when x"", -- KP (
+     X"49" when '0'&X"7b", -- KP -
+     X"4A" when '1'&X"5a", -- KP return
+--     X"4B" when X"", -- KP ,
+     X"4E" when '0'&X"66", -- KP del (backspace - mapped to left)
+     X"4D" when '1'&X"72", -- down arrow
+     X"4E" when '1'&X"6b", -- left arrow
+     X"4F" when '1'&X"74", -- right arrow
+
+     X"FF" when others;
 
 end rtl;
