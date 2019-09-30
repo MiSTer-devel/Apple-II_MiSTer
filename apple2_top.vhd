@@ -34,7 +34,7 @@ port (
 	ram_we         : out std_logic;
 	ram_di         : out std_logic_vector(7 downto 0);
 	ram_do         : in  std_logic_vector(15 downto 0);
-	ram_addr       : out std_logic_vector(15 downto 0);
+	ram_addr       : out std_logic_vector(17 downto 0);
 	ram_aux        : out std_logic;
 
 	-- video output
@@ -93,7 +93,7 @@ architecture arch of apple2_top is
 
   signal D1_ACTIVE, D2_ACTIVE : std_logic;
 
-  signal a_ram: unsigned(15 downto 0);
+  signal a_ram: unsigned(17 downto 0);
   
   signal psg_audio_l : unsigned(9 downto 0);
   signal psg_audio_r : unsigned(9 downto 0);

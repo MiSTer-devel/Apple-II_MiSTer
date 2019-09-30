@@ -3,6 +3,7 @@ set_global_assignment -name VHDL_FILE R65Cx2.vhd
 set_global_assignment -name VHDL_FILE mockingboard/mockingboard.vhd
 set_global_assignment -name VHDL_FILE mockingboard/via6522.vhd
 set_global_assignment -name SYSTEMVERILOG_FILE mockingboard/YM2149.sv
+set_global_assignment -name VERILOG_FILE ramcard.v
 set_global_assignment -name VHDL_FILE spram.vhd
 set_global_assignment -name VHDL_FILE disk_ii.vhd
 set_global_assignment -name VHDL_FILE disk_ii_rom.vhd

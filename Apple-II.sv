@@ -311,13 +311,13 @@ video_mixer #(.LINE_LENGTH(580)) video_mixer
 	.mono(0)
 );
 
-wire [15:0] ram_addr;
+wire [17:0] ram_addr;
 reg  [15:0] ram_dout;
 wire  [7:0]	ram_din;
 wire        ram_we;
 wire        ram_aux;
 
-reg [7:0] ram0[65536];
+reg [7:0] ram0[196608];
 always @(posedge clk_sys) begin
 	if(ram_we & ~ram_aux) begin
 		ram0[ram_addr] <= ram_din;
@@ -330,10 +330,10 @@ end
 reg [7:0] ram1[65536];
 always @(posedge clk_sys) begin
 	if(ram_we & ram_aux) begin
-		ram1[ram_addr] <= ram_din;
+		ram1[ram_addr[15:0]] <= ram_din;
 		ram_dout[15:8] <= ram_din;
 	end else begin
-		ram_dout[15:8] <= ram1[ram_addr];
+		ram_dout[15:8] <= ram1[ram_addr[15:0]];
 	end
 end
 
