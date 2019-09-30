@@ -153,6 +153,8 @@ parameter CONF_STR = {
 	"O4,Mocking board,Yes,No;",
 	"O78,Stereo mix,none,25%,50%,100%;",
 	"-;",
+	"O6,Analog X/Y,Normal,Swapped;",
+	"-;",
 	"R0,Cold Reset;",
 	"J,Fire 1,Fire 2;",
 	"V,v",`BUILD_DATE
@@ -270,7 +272,7 @@ apple2_top apple2_top
 	.ps2_key(ps2_key),
 
 	.joy(joy),
-	.joy_an(joya),
+	.joy_an(status[6] ? joya : {joya[7:0],joya[15:8]}),
 
 	.mb_enabled(~status[4]),
 
