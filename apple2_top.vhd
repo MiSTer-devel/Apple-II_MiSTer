@@ -32,7 +32,8 @@ entity apple2_top is port
 	reset_in			: in std_logic;
 
 	-- VGA output
-	VGA_DE 			: out std_logic;
+	VGA_HBL			: out std_logic;
+	VGA_VBL			: out std_logic;
 	VGA_CLK 			: out std_logic;
 	VGA_HS 			: out std_logic;
 	VGA_VS 			: out std_logic;
@@ -211,7 +212,8 @@ begin
     VGA_CLK    => VGA_CLK,
     VGA_HS     => VGA_HS,
     VGA_VS     => VGA_VS,
-    VGA_DE     => VGA_DE,
+    VGA_HBL    => VGA_HBL,
+    VGA_VBL    => VGA_VBL,
     std_logic_vector(VGA_R) => VGA_R,
     std_logic_vector(VGA_G) => VGA_G,
     std_logic_vector(VGA_B) => VGA_B

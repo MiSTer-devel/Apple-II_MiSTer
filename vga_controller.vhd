@@ -39,7 +39,8 @@ entity vga_controller is
 		VGA_CLK    : out std_logic;
 		VGA_HS     : out std_logic;             -- Active low
 		VGA_VS     : out std_logic;             -- Active low
-		VGA_DE     : out std_logic;
+		VGA_HBL    : out std_logic;
+		VGA_VBL    : out std_logic;
 		VGA_R      : out unsigned(7 downto 0);
 		VGA_G      : out unsigned(7 downto 0);
 		VGA_B      : out unsigned(7 downto 0)
@@ -70,10 +71,10 @@ architecture rtl of vga_controller is
 	constant VGA_VSYNC_LINES : integer := 3;
 
 	signal vbl_delayed : std_logic;
-	signal de_delayed : std_logic_vector(19 downto 0);
+	signal de_delayed : std_logic_vector(17 downto 0);
 
 begin
- 
+
 process (CLK_14M)
 begin
 	if rising_edge(CLK_14M) then
@@ -140,7 +141,6 @@ begin
 		elsif shift_reg(0) = shift_reg(4) and shift_reg(5) = shift_reg(1) then
 		 
 			-- Tint of adjacent pixels is consistent : display the color
-		 
 			if shift_reg(1) = '1' then
 				r := r + basis_r(to_integer(hcount + 1));
 				g := g + basis_g(to_integer(hcount + 1));
@@ -163,8 +163,7 @@ begin
 			end if;
 		else
 		 
-		 -- Tint is changing: display only black, gray, or white
-		 
+			-- Tint is changing: display only black, gray, or white
 			case shift_reg(3 downto 2) is
 				when "11"        => r := X"FF"; g := X"FF"; b := X"FF";
 				when "01" | "10" => r := X"80"; g := X"80"; b := X"80";
@@ -176,11 +175,12 @@ begin
 		VGA_G <= g;
 		VGA_B <= b;
 		
-		de_delayed <= de_delayed(18 downto 0) & (not (last_hbl or vbl_delayed));
+		de_delayed <= de_delayed(16 downto 0) & last_hbl;
 	end if;
 end process pixel_generator;
 
+VGA_VBL <= vbl_delayed;
+VGA_HBL <= de_delayed(17);
 VGA_CLK <= CLK_14M;
-VGA_DE <= de_delayed(19);
 
 end rtl;

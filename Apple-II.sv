@@ -137,7 +137,6 @@ assign BUTTONS   = 0;
 
 assign VIDEO_ARX = status[1] ? 8'd16 : 8'd4;
 assign VIDEO_ARY = status[1] ? 8'd9  : 8'd3; 
-assign VGA_SL = 0;
 assign VGA_F1 = 0;
 
 `include "build_id.v" 
@@ -148,24 +147,25 @@ parameter CONF_STR = {
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
 	"O23,Display,Color,B&W,Green,Amber;",
+	"O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
 	"-;",
 	"O4,Mocking board,Yes,No;",
 	"O78,Stereo mix,none,25%,50%,100%;",
 	"-;",
-	"R6,Reset;",
+	"R0,Reset;",
 	"J,Fire 1,Fire 2;",
 	"V,v",`BUILD_DATE
 };
 
 /////////////////  CLOCKS  ////////////////////////
 
-wire clk_sys, clk_vid;
+wire clk_sys;
 
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
-	.outclk_0(clk_vid),
+	.outclk_0(CLK_VIDEO),
 	.outclk_1(clk_sys)
 );
 
@@ -173,6 +173,7 @@ pll pll
 
 wire [31:0] status;
 wire  [1:0] buttons;
+wire        forced_scandoubler;
 
 wire [15:0] joystick_0, joystick_1;
 wire [15:0] joystick_a0, joystick_a1;
@@ -202,7 +203,8 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	
+	.forced_scandoubler(forced_scandoubler),
+
 	.sd_lba(sd_lba),
 	.sd_rd(sd_rd),
 	.sd_wr(0),
@@ -226,7 +228,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 
 /////////////////  RESET  /////////////////////////
 
-wire reset = RESET | status[0] | buttons[1] | status[6];
+wire reset = RESET | status[0] | buttons[1];
 
 ///////////////////////////////////////////////////
 
@@ -238,18 +240,16 @@ assign AUDIO_R = {1'b0, audio_r, 7'd0} + {2'b0, speaker, 13'd0};
 assign AUDIO_S = 0;
 assign AUDIO_MIX = status[8:7];
 
-assign CLK_VIDEO = clk_vid;
-assign CE_PIXEL = ce_pix;
-
 reg ce_pix;
 always @(posedge CLK_VIDEO) begin
 	reg [1:0] div = 0;
 	
 	div <= div + 1'd1;
-	ce_pix <= !div;
+	ce_pix <= &div;
 end
 
 wire led;
+wire hbl,vbl;
 apple2_top apple2_top
 (
 	.CLK_14M(clk_sys),
@@ -257,12 +257,13 @@ apple2_top apple2_top
 
 	.reset_in(reset),
 
-	.VGA_DE(VGA_DE),
-	.VGA_HS(VGA_HS),
-	.VGA_VS(VGA_VS),
-	.VGA_R(VGA_R),
-	.VGA_G(VGA_G),
-	.VGA_B(VGA_B),
+	.VGA_HBL(HBlank),
+	.VGA_VBL(VBlank),
+	.VGA_HS(HSync),
+	.VGA_VS(VSync),
+	.VGA_R(R),
+	.VGA_G(G),
+	.VGA_B(B),
 	.SCREEN_MODE(status[3:2]),
 
 	.AUDIO_L(audio_l),
@@ -288,6 +289,27 @@ apple2_top apple2_top
 	.ram_we(ram_we),
 
 	.LED(led)
+);
+
+wire [2:0] scale = status[11:9];
+wire [2:0] sl = scale ? scale - 1'd1 : 3'd0;
+wire       scandoubler = (scale || forced_scandoubler);
+
+assign VGA_SL = sl[1:0];
+
+wire [7:0] R,G,B;
+wire HSync, VSync, HBlank, VBlank;
+
+video_mixer #(.LINE_LENGTH(580)) video_mixer
+(
+	.*,
+
+	.clk_sys(CLK_VIDEO),
+	.ce_pix_out(CE_PIXEL),
+
+	.scanlines(0),
+	.hq2x(scale==1),
+	.mono(0)
 );
 
 wire [17:0] ram_addr;
