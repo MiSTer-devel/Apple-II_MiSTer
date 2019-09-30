@@ -26,7 +26,6 @@ use ieee.numeric_std.all;
 entity apple2_top is port
 (
 	-- Clocks
-	CLK_28M 			: in std_logic;
 	CLK_14M 			: in std_logic;
 	CPU_WAIT			: in std_logic;
 
@@ -81,7 +80,7 @@ architecture datapath of apple2_top is
   signal D, PD: unsigned(7 downto 0);
 
   signal we_ram : std_logic;
-  signal VIDEO, HBL, VBL, LD194 : std_logic;
+  signal VIDEO, HBL, VBL : std_logic;
   signal COLOR_LINE : std_logic;
   signal COLOR_LINE_CONTROL : std_logic;
   signal GAMEPORT : std_logic_vector(7 downto 0);
@@ -188,7 +187,6 @@ begin
     COLOR_LINE     => COLOR_LINE,
     HBL            => HBL,
     VBL            => VBL,
-    LD194          => LD194,
     K              => K,
     read_key       => read_key,
     AN             => open,
@@ -204,13 +202,12 @@ begin
     );
 
   vga : entity work.vga_controller port map (
-    CLK_28M    => CLK_28M,
+    CLK_14M    => CLK_14M,
     VIDEO      => VIDEO,
     COLOR_LINE => COLOR_LINE_CONTROL,
 	 SCREEN_MODE => SCREEN_MODE,
     HBL        => HBL,
     VBL        => VBL,
-    LD194      => LD194,
     VGA_CLK    => VGA_CLK,
     VGA_HS     => VGA_HS,
     VGA_VS     => VGA_VS,

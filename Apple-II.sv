@@ -159,16 +159,14 @@ parameter CONF_STR = {
 
 /////////////////  CLOCKS  ////////////////////////
 
-wire clk_ram, clk_sys, clk_fdd, clk_vid;
-wire pll_locked;
+wire clk_sys, clk_vid;
 
 pll pll
 (
 	.refclk(CLK_50M),
 	.rst(0),
 	.outclk_0(clk_vid),
-	.outclk_1(clk_sys),
-	.locked(pll_locked)
+	.outclk_1(clk_sys)
 );
 
 /////////////////  HPS  ///////////////////////////
@@ -241,12 +239,19 @@ assign AUDIO_S = 0;
 assign AUDIO_MIX = status[8:7];
 
 assign CLK_VIDEO = clk_vid;
-assign CE_PIXEL = 1;
+assign CE_PIXEL = ce_pix;
+
+reg ce_pix;
+always @(posedge CLK_VIDEO) begin
+	reg [1:0] div = 0;
+	
+	div <= div + 1'd1;
+	ce_pix <= !div;
+end
 
 wire led;
 apple2_top apple2_top
 (
-	.CLK_28M(clk_vid),
 	.CLK_14M(clk_sys),
 	.CPU_WAIT(cpu_wait),
 
