@@ -284,7 +284,7 @@ begin
     end case;        
   end process address_decoder;
 
-  aux_ctrl: process(A, we, RAMRD, RAMWRT, STORE80, HIRES_MODE, PAGE2, ALTZP)
+  aux_ctrl: process(A, we, RAMRD, RAMWRT, STORE80, HIRES_MODE, PAGE2, ALTZP, ram_card_sel)
   begin
     aux <= '0';
 	 if ram_card_sel = '1' then
