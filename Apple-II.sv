@@ -123,7 +123,6 @@ module emu
 	input         OSD_STATUS
 );
 
-assign ADC_BUS  = 'Z;
 assign USER_OUT = '1;
 assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
@@ -267,7 +266,7 @@ apple2_top apple2_top
 
 	.AUDIO_L(audio_l),
 	.AUDIO_R(audio_r),
-	.TAPE_IN(0),
+	.TAPE_IN(tape_adc_act & tape_adc),
 
 	.ps2_key(ps2_key),
 
@@ -373,5 +372,14 @@ always @(posedge clk_sys) begin
 			end
 	endcase
 end
+
+wire tape_adc, tape_adc_act;
+ltc2308_tape ltc2308_tape
+(
+	.clk(CLK_50M),
+	.ADC_BUS(ADC_BUS),
+	.dout(tape_adc),
+	.active(tape_adc_act)
+);
 
 endmodule
