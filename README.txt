@@ -1,8 +1,6 @@
 This is MiSTer port of Apple IIe from MiST.
 
-Put *.nib files into Apple-II folder.
-
-Bellow is readme from MiST. Functionality is identical.
+Put disk files into Apple-II folder.
 
 ---------------------------------------------------------------------------
 
@@ -11,7 +9,7 @@ Original for the DE2: http://www1.cs.columbia.edu/~sedwards/apple2fpga/
 Port for the MiST: http://ws0.org/tag/apple2/
 
 Features:
-- disk loading via osd (no write support yet)
+- disk loading via osd (no write support yet) supported formats: .nib, .dsk, .do, .po
 - Tape loading via the ADC-in
 - Selectable 6502 or 65C02 CPU 
 - joystick support
@@ -22,9 +20,13 @@ Features:
 - Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/index.php?p=1_28)
 - Mockingboard model A (two AY-3-8913 chips for six audio channels) in slot 4
 
-On the "Apple ][" boot screen open the OSD with F12 and choose a nibblelized disk. It will boot
-the disk automatically. Use dsk2nib to convert AppleII disk images to .nib images. 
-The disk emulation is read only.
+On the "Apple ][" boot screen open the OSD with F12 and choose a disk. It will boot
+the disk automatically. 
+
+Disk formats:
+Apple-II has a big mess in disk formats. DSK image may contain either DO or PO format.
+Even PO and DO may contain opposite format. So if PO disk doesn't work, then try to rename it to DO.
+if DO or DSK doesn't work then try to rename it to PO.
 
 If you press reset (the right button on the MiST) you'll enter Applesoft with the ] prompt.
 From here you have some limited commands. See: http://www.landsnail.com/a2ref.htm
