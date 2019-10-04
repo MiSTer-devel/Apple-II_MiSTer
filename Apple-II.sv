@@ -142,7 +142,7 @@ assign VGA_F1 = 0;
 parameter CONF_STR = {
 	"Apple-II;;",
 	"-;",
-	"S,NIB;",
+	"S,NIBDSKDO PO ;",
 	"-;",
 	"O1,Aspect ratio,4:3,16:9;",
 	"O23,Display,Color,B&W,Green,Amber;",
