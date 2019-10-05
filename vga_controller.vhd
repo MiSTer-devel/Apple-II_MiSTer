@@ -179,6 +179,6 @@ begin
 end process pixel_generator;
 
 VGA_VBL <= vbl_delayed;
-VGA_HBL <= de_delayed(17);
+VGA_HBL <= de_delayed(9) and de_delayed(17);
 
 end rtl;
