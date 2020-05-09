@@ -63,7 +63,7 @@ architecture rtl of keyboard is
 begin
 
   keyboard_rom : work.spram
-  generic map (11,8,"roms/keyboard.mif")
+  generic map (11,8,"rtl/roms/keyboard.mif")
   port map (
    address => std_logic_vector(rom_addr),
    clock => CLK_14M,

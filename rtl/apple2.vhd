@@ -481,6 +481,10 @@ begin
       enable   => CPU_EN and (not CPU_WAIT),
       res_n    => not reset,
 
+      Rdy      => '1',
+      Abort_n  => '1',
+      SO_n     => '1',
+
       IRQ_n    => IRQ_N,
       NMI_n    => NMI_N,
       R_W_n    => T65_WE_N,
@@ -505,7 +509,7 @@ begin
   -- Original Apple had asynchronous ROMs.  We use a synchronous ROM
   -- that needs its address earlier, hence the odd clock.
   roms : work.spram
-  generic map (14,8,"roms/apple2e.mif")
+  generic map (14,8,"rtl/roms/apple2e.mif")
   port map (
    address => std_logic_vector(rom_addr),
    clock => CLK_14M,

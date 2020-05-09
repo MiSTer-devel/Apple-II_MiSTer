@@ -60,7 +60,7 @@ begin
                     DL(5 downto 0) & SEGC & SEGB & SEGA;
 
   videorom : work.spram
-  generic map (12,8,"roms/video.mif")
+  generic map (12,8,"rtl/roms/video.mif")
   port map (
    address => std_logic_vector(video_rom_addr),
    clock => CLK_14M,

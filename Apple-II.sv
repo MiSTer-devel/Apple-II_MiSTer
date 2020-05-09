@@ -176,6 +176,7 @@ pll pll
 wire [31:0] status;
 wire  [1:0] buttons;
 wire        forced_scandoubler;
+wire [21:0] gamma_bus;
 
 wire [15:0] joystick_0, joystick_1;
 wire [15:0] joystick_a0, joystick_a1;
@@ -205,6 +206,7 @@ hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
 	.buttons(buttons),
 	.status(status),
 	.forced_scandoubler(forced_scandoubler),
+	.gamma_bus(gamma_bus),
 
 	.sd_lba(sd_lba),
 	.sd_rd(sd_rd),
@@ -302,7 +304,7 @@ video_mixer #(.LINE_LENGTH(580)) video_mixer
 (
 	.*,
 
-	.clk_sys(CLK_VIDEO),
+	.clk_vid(CLK_VIDEO),
 	.ce_pix_out(CE_PIXEL),
 
 	.scanlines(0),
