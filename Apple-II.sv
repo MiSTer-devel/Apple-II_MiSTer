@@ -300,7 +300,7 @@ assign VGA_SL = sl[1:0];
 wire [7:0] R,G,B;
 wire HSync, VSync, HBlank, VBlank;
 
-video_mixer #(.LINE_LENGTH(580)) video_mixer
+video_mixer #(.LINE_LENGTH(580), .GAMMA(1)) video_mixer
 (
 	.*,
 
