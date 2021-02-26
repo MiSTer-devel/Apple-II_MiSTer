@@ -203,7 +203,8 @@ video_freak video_freak
 parameter CONF_STR = {
 	"Apple-II;;",
 	"-;",
-	"S,NIBDSKDO PO ;",
+	"S0,NIBDSKDO PO ;",
+	"S1,HDV;",
 	"-;",
 	"OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"O23,Display,Color,B&W,Green,Amber;",
@@ -251,15 +252,15 @@ wire        joya_en = |joya;
 wire [10:0] ps2_key;
 
 reg  [31:0] sd_lba;
-reg         sd_rd;
+reg   [1:0] sd_rd;
 wire        sd_ack;
 wire  [8:0] sd_buff_addr;
 wire  [7:0] sd_buff_dout;
 wire        sd_buff_wr;
-wire        img_mounted;
+wire  [1:0] img_mounted;
 wire [63:0] img_size;
 
-hps_io #(.STRLEN($size(CONF_STR)>>3)) hps_io
+hps_io #(.STRLEN($size(CONF_STR)>>3), .VDNUM(2)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -341,9 +342,13 @@ apple2_top apple2_top
 	.mb_enabled(~status[4]),
 
 	.TRACK(track),
-	.TRACK_RAM_ADDR({track_sec, sd_buff_addr}),
-	.TRACK_RAM_DI(sd_buff_dout),
-	.TRACK_RAM_WE(sd_buff_wr),
+	.DISK_RAM_ADDR({track_sec, sd_buff_addr}),
+	.DISK_RAM_DI(sd_buff_dout),
+	.DISK_RAM_WE(sd_buff_wr),
+	.HDD_SECTOR(hdd_sector),
+	.HDD_READ(hdd_read),
+	.HDD_MOUNTED(hdd_mounted),
+	.HDD_PROTECT(hdd_protect),
 
 	.ram_addr(ram_addr),
 	.ram_do(ram_dout),
@@ -395,40 +400,59 @@ always @(posedge clk_sys) begin
 	end
 end
 
-wire [5:0] track;
-reg  [3:0] track_sec;
-reg        cpu_wait = 0;
+wire [5:0]  track;
+reg  [3:0]  track_sec;
+wire [15:0] hdd_sector;
+reg         hdd_mounted = 0;
+wire        hdd_read;
+wire        hdd_protect;
+reg         cpu_wait = 0;
 
 always @(posedge clk_sys) begin
 	reg [2:0] state = 0;
 	reg [5:0] cur_track;
-	reg       mounted = 0;
+	reg       fdd_mounted = 0;
 	reg       old_ack = 0;
+	reg       hdd_read_pending = 0;
 	
 	old_ack <= sd_ack;
-	mounted <= mounted | img_mounted;
-	
+	fdd_mounted <= fdd_mounted | img_mounted[0];
+	hdd_read_pending <= hdd_read_pending | hdd_read;
+
+	if (img_mounted[1])
+	  hdd_mounted <= img_size != 0;
+
 	case(state)
-		0: if((cur_track != track) || (mounted && ~img_mounted)) begin
-				cur_track <= track;
-				mounted <= 0;
-				if(img_size) begin
-					track_sec <= 0;
-					sd_lba <= 13 * track;
-					state <= 1;
-					sd_rd <= 1;
-					cpu_wait <= 1;
-				end
+		0: if (hdd_read_pending) begin // if ((cur_track != track) || (fdd_mounted && ~img_mounted[0]))
+			sd_lba <= {16'h0000, hdd_sector};
+			state <= 2;
+			sd_rd <= 2'b10;
+			cpu_wait <= 1;
+		end else if((cur_track != track) || (fdd_mounted && ~img_mounted[0])) begin
+			cur_track <= track;
+			fdd_mounted <= 0;
+			if(img_size) begin
+				track_sec <= 0;
+				sd_lba <= 13 * track;
+				state <= 1;
+				sd_rd <= 2'b01;
+				cpu_wait <= 1;
 			end
-			
+		end
 		1: if(~old_ack & sd_ack) begin
-				if(track_sec >= 12) sd_rd <= 0;
-				sd_lba <= sd_lba + 1'd1;
-			end else if(old_ack & ~sd_ack) begin
-				track_sec <= track_sec + 1'd1;
-				if(~sd_rd) state <= 0;
-				cpu_wait <= 0;
-			end
+			if(track_sec >= 12) sd_rd <= 0;
+			sd_lba <= sd_lba + 1'd1;
+		end else if(old_ack & ~sd_ack) begin
+			track_sec <= track_sec + 1'd1;
+			if(~sd_rd[0]) state <= 0;
+			cpu_wait <= 0;
+		end
+		2: if (~old_ack & sd_ack) begin
+			hdd_read_pending <= 0;
+			sd_rd <= 0;
+			state <= 0;
+			cpu_wait <= 0;
+		end
 	endcase
 end
 
