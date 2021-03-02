@@ -1,54 +1,60 @@
-This is MiSTer port of Apple IIe from MiST.
+# [Apple IIe](https://en.wikipedia.org/wiki/Apple_IIe) for [MiSTer](https://github.com/MiSTer-devel/Main_MiSTer/wiki)
 
-Put disk files into Apple-II folder.
+This is a MiSTer port of the Apple IIe core from MiST.
 
----------------------------------------------------------------------------
+## Description
 
-This the MiST port of a reconstruction of an 1980s-era Apple ][+ implemented in VHDL for FPGAs.
-Original for the DE2: http://www1.cs.columbia.edu/~sedwards/apple2fpga/
+This the MiST port of a reconstruction of an 1980s-era Apple ][+ implemented in VHDL for FPGAs.  
+Original for the DE2: http://www1.cs.columbia.edu/~sedwards/apple2fpga/  
 Port for the MiST: http://ws0.org/tag/apple2/
 
-Features:
-- disk loading via osd (no write support yet) supported formats: .nib, .dsk, .do, .po
-- Tape loading via the ADC-in
-- Selectable 6502 or 65C02 CPU 
-- joystick support
-- scanlines
-- color, amber, green and black&white monitor
-- language card in slot 0
-- 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
-- Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/index.php?p=1_28)
-- Mockingboard model A (two AY-3-8913 chips for six audio channels) in slot 4
+## Features
 
-On the "Apple ][" boot screen open the OSD with F12 and choose a disk. It will boot
-the disk automatically. 
+* disk loading via osd (no write support yet) supported formats: .nib, .dsk, .do, .po
+* Tape loading via the ADC-in
+* Selectable 6502 or 65C02 CPU
+* joystick support
+* scanlines
+* color, amber, green and black&white monitor
+* language card in slot 0
+* 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
+* Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/index.php?p=1_28)
+* Mockingboard model A (two AY-3-8913 chips for six audio channels) in slot 4
 
-Disk formats:
-Apple-II has a big mess in disk formats. DSK image may contain either DO or PO format.
-Even PO and DO may contain opposite format. So if PO disk doesn't work, then try to rename it to DO.
-if DO or DSK doesn't work then try to rename it to PO.
+## Disk format notes
+
+Apple-II has a big mess in disk formats. DSK image may contain either DO or PO format. Even PO and DO may contain opposite format. So if PO disk doesn't work, then try to rename it to DO. If DO or DSK doesn't work then try to rename it to PO.
+
+## Instructions
+
+Put disk files into the `/games/Apple-II/` folder.
+
+On the "Apple ][" boot screen open the OSD with F12 and choose a disk. It will boot the disk automatically. 
 
 If you press reset (the right button on the MiST) you'll enter Applesoft with the ] prompt.
 From here you have some limited commands. See: http://www.landsnail.com/a2ref.htm
+
 If you want to boot another disk choose a .nib image via the osd and type the following:
 
+```
 ]PR#6
+```
 
 or
 
-]CALL -151
+```
+]CALL -151`
 *C600G
+```
 
 The call command will enter the Monitor. Type the call a second time if the * prompt won't
 show the first time. 
 At the Monitor you can also type 6 and then Ctrl-P followed by return.
 See http://vectronicsappleworld.com/appleii/dos.html#bootdos
 
+### Pre-MiST ReadMe for historical purposes:
 
----------------------------------------------------------------------------
-                Pre-MiST ReadMe for historical purpose.
----------------------------------------------------------------------------
-
+```
 This is a reconstruction of an 1980s-era Apple ][+ implemented in VHDL for
 FPGAs.
 
@@ -181,5 +187,5 @@ The low-level PS/2 keyboard controller is from ALSE:
 
 I adapted the Apple ][ keyboard emulation from Alex Freed's FPGApple:
 http://mirrow.com/FPGApple/
-
+```
  
