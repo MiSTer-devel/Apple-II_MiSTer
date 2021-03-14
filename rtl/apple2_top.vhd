@@ -65,6 +65,7 @@ port (
 	-- HDD control
 	HDD_SECTOR   : out unsigned(15 downto 0);
         HDD_READ     : out std_logic;
+        HDD_WRITE    : out std_logic;
         HDD_MOUNTED  : in  std_logic;
         HDD_PROTECT  : in  std_logic;
 
@@ -275,7 +276,7 @@ begin
     D_OUT          => HDD_DO,
     sector         => HDD_SECTOR,
     hdd_read       => HDD_READ,
-    hdd_write      => open,
+    hdd_write      => HDD_WRITE,
     hdd_mounted    => HDD_MOUNTED,
     hdd_protect    => HDD_PROTECT,
     ram_addr       => DISK_RAM_ADDR(8 downto 0),
@@ -283,7 +284,7 @@ begin
     ram_do         => DISK_RAM_DO,
     ram_we         => DISK_RAM_WE
     );
-  
+
   mb : work.mockingboard
     port map (
       CLK_14M    => CLK_14M,

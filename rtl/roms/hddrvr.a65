@@ -89,7 +89,7 @@ Entrypoint_ProDOS		; $c70a - ProDOS entrypoint
 
 Entrypoint_SmartPort	; $c70d - SmartPort entrypoint
  clc
- 
+
 Entrypoint				; $c70e - entrypoint?
  bcs cmdproc
  bcc SmartPort
@@ -136,24 +136,6 @@ SmartPort
  lda ($46),y	; cmd
  sta $42
  iny
- bne SmartPort2
-
-;======================================
-; 8 unused bytes
-
-*= $c746	; org $c746
-
-Entrypoint_C746	; Old f/w 'cmdproc' entrypoint
-				; Keep this for any DOSMaster HDD images created with old AppleWin HDD f/w.
-				; DOSMaster hardcodes the entrypoint addr into its bootstrapping code:
-				; - So DOSMaster images are tied to the HDD's controller's f/w
- sec
- bcs Entrypoint
-
-;======================================
-
-; Pre: Y=2
-SmartPort2
  lda ($46),y	; param_l
  sta $45
  iny
@@ -167,21 +149,22 @@ SmartPort2
  lda ($45),y	; memblock_l
  sta $44
  iny
- bne SmartPort3
+ lda ($45),y	; memblock_h
+ pha
+ iny
+ lda ($45),y	; diskblock_l
+ pha
+ iny
+ lda ($45),y	; diskblock_h
+ sta $47
 
-;======================================
-; 1 unused byte
- 
-*= $c761	; org $c761
+ pla
+ sta $46
+ pla
+ sta $45
 
-Entrypoint_C761	; Apple Oasis HDD controller entrypoint
-				; Keep this for any DOSMaster HDD images created with Apple Oasis HDD f/w.
-				; DOSMaster hardcodes the entrypoint addr into its bootstrapping code:
-				; - So DOSMaster images are tied to the HDD's controller's f/w
- sec
- bcs Entrypoint
-
-;======================================
+ iny
+ bne cmdproc
 
 ; image ready.  Lets boot from it.
 ; we want to load block 1 from s7,d1 to $800 then jump there
@@ -212,8 +195,6 @@ goload
 ; to our I/O ports then execute command
 cmdproc
  clc
- lda $42
- sta hd_command
  lda $43
  sta hd_unitnum
  lda $44
@@ -224,6 +205,12 @@ cmdproc
  sta hd_diskblock
  lda $47
  sta hd_diskblock+1
+ lda $42
+ sta hd_command
+ cmp #2
+ bne skipSwrite
+ jsr swrite
+skipSwrite
  lda hd_execute
 
 ; check for error
@@ -269,28 +256,29 @@ loop2
  tay
  rts
 
-;======================================
-
-SmartPort3
- lda ($45),y	; memblock_h
+swrite
+ tya
  pha
+ ldy #0
+wloop1
+ lda (memblock),y
+ sta hd_nextbyte
  iny
- lda ($45),y	; diskblock_l
- pha
+ bne wloop1
+ inc memblock+1
+ ldy #0
+wloop2
+ lda (memblock),y
+ sta hd_nextbyte
  iny
- lda ($45),y	; diskblock_h
- sta $47
- 
+ bne wloop2
+ dec memblock+1		; restore memblock+1 ($45) to original value (for Epyx's California Games)
  pla
- sta $46
- pla
- sta $45
- 
- iny
- bne cmdproc
+ tay
+ rts
 
 ;======================================
-; 18 unused bytes
+; 18
 
 !zone data
 

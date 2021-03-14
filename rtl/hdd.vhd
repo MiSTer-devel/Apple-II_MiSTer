@@ -1,9 +1,9 @@
 -------------------------------------------------------------------------------
 --
--- AppleWin HDD interface
+-- HDD interface
 --
--- This is a ProDOS HDD interface compatible with the AppleWin
--- firmware. Currently, the CPU must be halted during command execution.
+-- This is a ProDOS HDD interface based on the AppleWin interface.
+-- Currently, the CPU must be halted during command execution.
 --
 -- Steven A. Wilson
 --
@@ -59,10 +59,11 @@ architecture rtl of hdd is
   signal reg_block_h: unsigned(7 downto 0);
 
   -- Internal sector buffer offset counter; incremented by
-  -- access to C0F8 and reset when a read or write command is
-  -- initiated via C0F0
+  -- access to C0F8 and reset when a command is written to
+  -- C0F2.
   signal sec_addr: unsigned (8 downto 0);
-  signal sec_addr_incremented: std_logic;
+  signal increment_sec_addr: std_logic;
+  signal select_d: std_logic;
 
   -- Sector buffer
   type sector_ram is array(0 to 511) of unsigned(7 downto 0);
@@ -86,7 +87,6 @@ begin
       D_OUT <= X"FF";
       hdd_read <= '0';
       hdd_write <= '0';
-      sec_addr_incremented <= '0';
       if reset = '1' then
         reg_status <= X"00";
         reg_command <= X"00";
@@ -96,12 +96,14 @@ begin
         reg_block_l <= X"00";
         reg_block_h <= X"00";
       else
+        select_d <= DEVICE_SELECT;
         if DEVICE_SELECT = '1' then
           if RD = '1' then
             case A(3 downto 0) is
               when X"0" =>
+                sec_addr <= "000000000";
                 case reg_command is
-                  when PRODOS_COMMAND_STATUS => 
+                  when PRODOS_COMMAND_STATUS =>
                     if hdd_mounted = '1' and reg_unit = X"70" then
                       reg_status <= X"00";
                       D_OUT <= X"00";
@@ -109,18 +111,16 @@ begin
                       reg_status <= X"01";
                       D_OUT <= PRODOS_STATUS_NO_DEVICE;
                     end if;
-                  when PRODOS_COMMAND_READ => 
-                    sec_addr <= "111111111";
+                  when PRODOS_COMMAND_READ =>
                     if hdd_mounted = '1' and reg_unit = X"70" then
                       hdd_read <= '1';
                       reg_status <= X"00";
                       D_OUT <= X"00";
                     else
                       reg_status <= X"01";
-                      D_OUT <= PRODOS_STATUS_NO_DEVICE;                      
+                      D_OUT <= PRODOS_STATUS_NO_DEVICE;
                     end if;
                   when PRODOS_COMMAND_WRITE =>
-                    sec_addr <= "000000000";
                     if hdd_mounted = '0' or reg_unit /= X"70" then
                       D_OUT <= PRODOS_STATUS_NO_DEVICE;
                       reg_status <= X"01";
@@ -133,7 +133,8 @@ begin
                     end if;
                     when others => null;
                 end case;
-              when X"1" => D_OUT <= reg_status;
+              when X"1" =>
+                D_OUT <= reg_status;
               when X"2" => D_OUT <= reg_command;
               when X"3" => D_OUT <= reg_unit;
               when X"4" => D_OUT <= reg_mem_l;
@@ -142,23 +143,32 @@ begin
               when X"7" => D_OUT <= reg_block_h;
               when X"8" =>
                 D_OUT <= sector_buf(to_integer(sec_addr));
-                if sec_addr_incremented = '0' then
-                  sec_addr <= sec_addr + 1;
-                end if;
-                sec_addr_incremented <= '1';
+                increment_sec_addr <= '1';
               when others => null;
-            end case;   
+            end case;
           else -- RD = '0'; 6502 is writing
             case A(3 downto 0) is
-              when X"2" => reg_command <= D_IN;
+              when X"2" =>
+                if D_IN = X"02" then
+                  sec_addr <= "000000000";
+                end if;
+                reg_command <= D_IN;
               when X"3" => reg_unit <= D_IN;
               when X"4" => reg_mem_l <= D_IN;
               when X"5" => reg_mem_h <= D_IN;
               when X"6" => reg_block_l <= D_IN;
               when X"7" => reg_block_h <= D_IN;
+              when X"8" =>
+                sector_buf(to_integer(sec_addr)) <= D_IN;
+                increment_sec_addr <= '1';
               when others => null;
             end case;
           end if; -- RD/WR
+        elsif DEVICE_SELECT = '0' and select_d = '1' then
+          if increment_sec_addr = '1' then
+            sec_addr <= sec_addr + 1;
+            increment_sec_addr <= '0';
+          end if;
         elsif IO_SELECT = '1' then -- Firmware ROM read
           if RD = '1' then
             D_OUT <= rom_dout;
@@ -166,7 +176,6 @@ begin
         end if; -- DEVICE_SELECT/IO_SELECT
       end if; -- RESET
     end if;
-    
   end process; -- cpu_interface
 
   -- Dual-ported RAM holding the contents of the sector
