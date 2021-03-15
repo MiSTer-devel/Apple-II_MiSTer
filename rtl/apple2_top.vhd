@@ -56,10 +56,18 @@ port (
 
 	-- disk control
 	TRACK 			: out unsigned(5 downto 0);
-	TRACK_RAM_ADDR : in  unsigned(12 downto 0);
-	TRACK_RAM_DI 	: in  unsigned(7 downto 0);
-	TRACK_RAM_WE 	: in  std_logic;
+	DISK_RAM_ADDR : in  unsigned(12 downto 0);
+	DISK_RAM_DI 	: in  unsigned(7 downto 0);
+	DISK_RAM_DO     : out unsigned(7 downto 0);
+	DISK_RAM_WE 	: in  std_logic;
 	DISK_ACT       : out std_logic;
+
+	-- HDD control
+	HDD_SECTOR   : out unsigned(15 downto 0);
+        HDD_READ     : out std_logic;
+        HDD_WRITE    : out std_logic;
+        HDD_MOUNTED  : in  std_logic;
+        HDD_PROTECT  : in  std_logic;
 
 	AUDIO_L        : out std_logic_vector(9 downto 0);
 	AUDIO_R        : out std_logic_vector(9 downto 0);
@@ -73,7 +81,7 @@ architecture arch of apple2_top is
   signal IO_SELECT, DEVICE_SELECT : std_logic_vector(7 downto 0);
   signal ADDR : unsigned(15 downto 0);
   signal D, PD: unsigned(7 downto 0);
-  signal DISK_DO, PSG_DO : unsigned(7 downto 0);
+  signal DISK_DO, PSG_DO, HDD_DO : unsigned(7 downto 0);
   signal cpu_we : std_logic;
   signal psg_irq_n, psg_nmi_n : std_logic;
 
@@ -174,12 +182,14 @@ begin
   ram_addr <= std_logic_vector(a_ram) when reset_cold = '0' else std_logic_vector(to_unsigned(1012,ram_addr'length)); -- $3F4
   ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
 
-  PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else DISK_DO;
+  PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
+        HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
+        DISK_DO;
 
   core : entity work.apple2 port map (
     CLK_14M        => CLK_14M,
     CLK_2M         => CLK_2M,
-	 CPU_WAIT       => CPU_WAIT,
+    CPU_WAIT       => CPU_WAIT,
     PHASE_ZERO     => PHASE_ZERO,
     FLASH_CLK      => flash_clk(22),
     reset          => reset,
@@ -248,12 +258,32 @@ begin
     TRACK_ADDR     => open,
     D1_ACTIVE      => D1_ACTIVE,
     D2_ACTIVE      => D2_ACTIVE,
-    ram_write_addr => TRACK_RAM_ADDR,
-    ram_di         => TRACK_RAM_DI,
-    ram_we         => TRACK_RAM_WE
+    ram_write_addr => DISK_RAM_ADDR,
+    ram_di         => DISK_RAM_DI,
+    ram_we         => DISK_RAM_WE
     );
 
   DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
+
+  hdd : entity work.hdd port map (
+    CLK_14M        => CLK_14M,
+    IO_SELECT      => IO_SELECT(7),
+    DEVICE_SELECT  => DEVICE_SELECT(7),
+    RESET          => reset,
+    A              => ADDR,
+    RD             => not cpu_we,
+    D_IN           => D,
+    D_OUT          => HDD_DO,
+    sector         => HDD_SECTOR,
+    hdd_read       => HDD_READ,
+    hdd_write      => HDD_WRITE,
+    hdd_mounted    => HDD_MOUNTED,
+    hdd_protect    => HDD_PROTECT,
+    ram_addr       => DISK_RAM_ADDR(8 downto 0),
+    ram_di         => DISK_RAM_DI,
+    ram_do         => DISK_RAM_DO,
+    ram_we         => DISK_RAM_WE
+    );
 
   mb : work.mockingboard
     port map (

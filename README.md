@@ -11,6 +11,7 @@ Port for the MiST: http://ws0.org/tag/apple2/
 ## Features
 
 * disk loading via osd (no write support yet) supported formats: .nib, .dsk, .do, .po
+* HDD loading via osd
 * Tape loading via the ADC-in
 * Selectable 6502 or 65C02 CPU
 * joystick support
@@ -24,6 +25,8 @@ Port for the MiST: http://ws0.org/tag/apple2/
 ## Disk format notes
 
 Apple-II has a big mess in disk formats. DSK image may contain either DO or PO format. Even PO and DO may contain opposite format. So if PO disk doesn't work, then try to rename it to DO. If DO or DSK doesn't work then try to rename it to PO.
+
+For HDD, only HDV images (raw ProDOS partition images) 32MB in size are supported. 2MG images may work if the 64-byte header is removed.
 
 ## Instructions
 
@@ -51,6 +54,19 @@ The call command will enter the Monitor. Type the call a second time if the * pr
 show the first time. 
 At the Monitor you can also type 6 and then Ctrl-P followed by return.
 See http://vectronicsappleworld.com/appleii/dos.html#bootdos
+
+The HDD interface is in slot 7. Unlike the floppy interface, it does not stall until an image is mounted, so either reset the machine or use one of the following after mounting an image:
+
+```
+]PR#7
+```
+
+or
+
+```
+]CALL -151`
+*C700G
+```
 
 ### Pre-MiST ReadMe for historical purposes:
 
