@@ -48,8 +48,8 @@ end vga_controller;
 
 architecture rtl of vga_controller is
 
-	-- RGB values from Linards Ticmanis,
-	-- http://newsgroups.derkeiler.com/Archive/Comp/comp.sys.apple2/2005-09/msg00534.html
+	-- RGB values from Linards Ticmanis (posted on comp.sys.apple2 on 29-Sep-2005)
+	-- https://groups.google.com/g/comp.sys.apple2/c/uILy74pRsrk/m/G9XDxQhWi1AJ
 
 	type basis_color is array(0 to 3) of unsigned(7 downto 0);
 	constant basis_r : basis_color := ( X"88", X"38", X"07", X"38" );
