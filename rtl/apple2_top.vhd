@@ -56,18 +56,22 @@ port (
 
 	-- disk control
 	TRACK 			: out unsigned(5 downto 0);
-	DISK_RAM_ADDR : in  unsigned(12 downto 0);
+	DISK_RAM_ADDR  : in  unsigned(12 downto 0);
 	DISK_RAM_DI 	: in  unsigned(7 downto 0);
-	DISK_RAM_DO     : out unsigned(7 downto 0);
+	DISK_RAM_DO    : out unsigned(7 downto 0);
 	DISK_RAM_WE 	: in  std_logic;
 	DISK_ACT       : out std_logic;
 
 	-- HDD control
-	HDD_SECTOR   : out unsigned(15 downto 0);
-        HDD_READ     : out std_logic;
-        HDD_WRITE    : out std_logic;
-        HDD_MOUNTED  : in  std_logic;
-        HDD_PROTECT  : in  std_logic;
+	HDD_SECTOR     : out unsigned(15 downto 0);
+	HDD_READ       : out std_logic;
+	HDD_WRITE      : out std_logic;
+	HDD_MOUNTED    : in  std_logic;
+	HDD_PROTECT    : in  std_logic;
+	HDD_RAM_ADDR   : in  unsigned(8 downto 0);
+	HDD_RAM_DI     : in  unsigned(7 downto 0);
+	HDD_RAM_DO     : out unsigned(7 downto 0);
+	HDD_RAM_WE     : in  std_logic;
 
 	AUDIO_L        : out std_logic_vector(9 downto 0);
 	AUDIO_R        : out std_logic_vector(9 downto 0);
@@ -264,6 +268,7 @@ begin
     );
 
   DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
+  DISK_RAM_DO <= (others => '0');
 
   hdd : entity work.hdd port map (
     CLK_14M        => CLK_14M,
@@ -279,10 +284,10 @@ begin
     hdd_write      => HDD_WRITE,
     hdd_mounted    => HDD_MOUNTED,
     hdd_protect    => HDD_PROTECT,
-    ram_addr       => DISK_RAM_ADDR(8 downto 0),
-    ram_di         => DISK_RAM_DI,
-    ram_do         => DISK_RAM_DO,
-    ram_we         => DISK_RAM_WE
+    ram_addr       => HDD_RAM_ADDR,
+    ram_di         => HDD_RAM_DI,
+    ram_do         => HDD_RAM_DO,
+    ram_we         => HDD_RAM_WE
     );
 
   mb : work.mockingboard
