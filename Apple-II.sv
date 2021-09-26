@@ -218,6 +218,7 @@ parameter CONF_STR = {
 	"O78,Stereo mix,none,25%,50%,100%;",
 	"-;",
 	"O6,Analog X/Y,Normal,Swapped;",
+	"OHI,Paddle as analog,No,X,Y;",
 	"-;",
 	"R0,Cold Reset;",
 	"JA,Fire 1,Fire 2;",
@@ -243,12 +244,9 @@ wire  [1:0] buttons;
 wire        forced_scandoubler;
 wire [21:0] gamma_bus;
 
-wire [15:0] joystick_0, joystick_1;
-wire [15:0] joystick_a0, joystick_a1;
-
-wire  [5:0] joy = (joystick_0[5:0] | joystick_1[5:0]) & {2'b11, {4{~joya_en}}};
-wire [15:0] joya = joystick_a0 ? joystick_a0 : joystick_a1;
-wire        joya_en = |joya;
+wire [15:0] joystick_0;
+wire [15:0] joystick_a0;
+wire  [7:0] paddle_0;
 
 wire [10:0] ps2_key;
 
@@ -292,12 +290,16 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 	.ps2_key(ps2_key),
 
 	.joystick_0(joystick_0),
-	.joystick_1(joystick_1),
 	.joystick_analog_0(joystick_a0),
-	.joystick_analog_1(joystick_a1)
+	.paddle_0(paddle_0)
 );
 
 ///////////////////////////////////////////////////
+
+wire  [7:0] pdl  = {~paddle_0[7], paddle_0[6:0]};
+wire [15:0] joys = status[6] ? joystick_a0 : {joystick_a0[7:0],joystick_a0[15:8]};
+wire [15:0] joya = {status[17] ? pdl : joys[15:8], status[18] ? pdl : joys[7:0]};
+wire  [5:0] joyd = joystick_0[5:0] & {2'b11, {2{~|joys[7:0]}}, {2{~|joys[15:8]}}};
 
 wire [9:0] audio_l, audio_r;
 
@@ -340,8 +342,8 @@ apple2_top apple2_top
 
 	.ps2_key(ps2_key),
 
-	.joy(joy),
-	.joy_an(status[6] ? joya : {joya[7:0],joya[15:8]}),
+	.joy(joyd),
+	.joy_an(joya),
 
 	.mb_enabled(~status[4]),
 
