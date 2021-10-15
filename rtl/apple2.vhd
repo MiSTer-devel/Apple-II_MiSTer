@@ -123,6 +123,7 @@ architecture rtl of apple2 is
   signal GAMEPORT_SELECT : std_logic;
   signal IO_STROBE : std_logic;
   signal HRAM_CONTROL : std_logic;
+  signal C01X_SELECT : std_logic;
 
   -- Speaker signal
   signal speaker_sig : std_logic := '0';        
@@ -210,7 +211,7 @@ begin
     ROM_SELECT <= '0';
     RAM_SELECT <= '0';
     KEYBOARD_SELECT <= '0';
-    READ_KEY <= '0';
+    C01X_SELECT <= '0';
     TAPE_OUT <= '0';
     SPEAKER_SELECT <= '0';
     SOFTSWITCH_SELECT <= '0';
@@ -233,7 +234,7 @@ begin
                   when x"0" =>          -- C000 - C00F
                      KEYBOARD_SELECT <= '1';
                   when x"1" =>          -- C010 - C01F
-                     READ_KEY <= '1';
+                    C01X_SELECT <= '1';
                   when x"2" =>          -- C020 - C02F
                     TAPE_OUT <= '1';
                   when x"3" =>          -- C030 - C03F
@@ -364,6 +365,7 @@ begin
       COL80 <= '0';
       ALTCHAR <= '0';
     elsif rising_edge(CLK_14M) then
+      READ_KEY <= '0';
       if A(15 downto 8) = x"C3" and C3ROM = '0' then
         C8ROM <= '1';
       elsif A = x"CFFF" then
@@ -381,9 +383,11 @@ begin
         when "111" => ALTCHAR <= A(0);
         when others => null;
         end case;
-      elsif READ_KEY = '1' and we = '0' then
+      elsif C01X_SELECT = '1' and we = '0' then
         case A(3 downto 0) is
-        when x"0" => SF_D <= AKD;
+        when x"0" =>
+          SF_D <= AKD;
+          READ_KEY <= '1';
         when x"1" => SF_D <= not HRAM_BANK1;
         when x"2" => SF_D <= HRAM_READ;
         when x"3" => SF_D <= RAMRD;
@@ -401,6 +405,8 @@ begin
         when x"F" => SF_D <= COL80;
         when others => null;
         end case;
+      elsif C01X_SELECT = '1' and we = '1' then
+        READ_KEY <= '1';
       end if;
     end if;
   end process softswitches_IIe;
@@ -409,7 +415,7 @@ begin
 
   D_IN <= CPU_DL when RAM_SELECT = '1' or HRAM_READ_EN = '1' or ram_card_read = '1' else  -- RAM
           K when KEYBOARD_SELECT = '1' else  -- Keyboard
-          SF_D & K(6 downto 0) when READ_KEY = '1' else -- ][e softswitches
+          SF_D & K(6 downto 0) when C01X_SELECT = '1' else -- ][e softswitches
           GAMEPORT(TO_INTEGER(A(2 downto 0))) & VIDEO_DL(6 downto 0)  -- Gameport
              when GAMEPORT_SELECT = '1' else
           rom_out when ROM_SELECT = '1' else  -- ROMs
