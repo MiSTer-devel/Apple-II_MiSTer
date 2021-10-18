@@ -290,7 +290,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 	.ps2_key(ps2_key),
 
 	.joystick_0(joystick_0),
-	.joystick_analog_0(joystick_a0),
+	.joystick_l_analog_0(joystick_a0),
 	.paddle_0(paddle_0)
 );
 
