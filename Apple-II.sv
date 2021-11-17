@@ -208,7 +208,7 @@ parameter CONF_STR = {
 	"S1,HDV;",
 	"-;",
 	"OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
-	"O23,Display,Color,B&W,Green,Amber;",
+	"OJL,Display,Color 1,Color 2,B&W,Green,Amber;",
 	"O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
 	"OEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"OG,Pixel Clock,Double,Normal;",
@@ -318,6 +318,33 @@ end
 
 wire led;
 wire hbl,vbl;
+
+reg [1:0] screen_mode;
+reg       text_color;
+
+always @(status[21:19]) case (status[21:19])
+	3'b000: begin
+		screen_mode = 2'b00;
+		text_color = 0;
+	end
+	3'b001: begin
+		screen_mode = 2'b00;
+		text_color = 1;
+	end
+	3'b010: begin
+		screen_mode = 2'b01;
+		text_color = 0;
+	end
+	3'b011: begin
+		screen_mode = 2'b10;
+		text_color = 0;
+	end
+	3'b100: begin
+		screen_mode = 2'b11;
+		text_color = 0;
+	end
+endcase // always @ (status[21:19])
+
 apple2_top apple2_top
 (
 	.CLK_14M(clk_sys),
@@ -334,7 +361,8 @@ apple2_top apple2_top
 	.r(R),
 	.g(G),
 	.b(B),
-	.SCREEN_MODE(status[3:2]),
+	.SCREEN_MODE(screen_mode),
+	.TEXT_COLOR(text_color),
 
 	.AUDIO_L(audio_l),
 	.AUDIO_R(audio_r),

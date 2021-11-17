@@ -33,6 +33,7 @@ entity apple2 is
     ram_we         : out std_logic;              -- RAM write enable
     VIDEO          : out std_logic;
     COLOR_LINE     : out std_logic;
+    TEXT_MODE      : buffer std_logic;
     HBL            : out std_logic;
     VBL            : buffer std_logic;
     K              : in unsigned(7 downto 0);    -- Keyboard data
@@ -78,7 +79,6 @@ architecture rtl of apple2 is
   
   -- Soft switches
   signal soft_switches : std_logic_vector(7 downto 0) := "00000000";
-  signal TEXT_MODE : std_logic;
   signal MIXED_MODE : std_logic;
   signal PAGE2 : std_logic;
   signal HIRES_MODE : std_logic;
