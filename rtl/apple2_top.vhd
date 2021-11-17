@@ -46,6 +46,8 @@ port (
 	g              : out std_logic_vector(7 downto 0);
 	b              : out std_logic_vector(7 downto 0);
 	SCREEN_MODE    : in  std_logic_vector(1 downto 0); -- 00: Color, 01: B&W, 10:Green, 11: Amber
+	TEXT_COLOR     : in  std_logic; -- 1 = color processing for
+	                                -- text lines in mixed modes
 
 	PS2_Key        : in  std_logic_vector(10 downto 0);
 	joy            : in  std_logic_vector(5 downto 0);
@@ -93,6 +95,7 @@ architecture arch of apple2_top is
   signal VIDEO, HBL, VBL : std_logic;
   signal COLOR_LINE : std_logic;
   signal COLOR_LINE_CONTROL : std_logic;
+  signal TEXT_MODE : std_logic;
   signal GAMEPORT : std_logic_vector(7 downto 0);
 
   signal K : unsigned(7 downto 0);
@@ -179,8 +182,8 @@ begin
     end if;
   end process;
 
-  COLOR_LINE_CONTROL <= COLOR_LINE and not (SCREEN_MODE(1) or SCREEN_MODE(0));  -- Color or B&W mode
-  
+  COLOR_LINE_CONTROL <= (COLOR_LINE or (TEXT_COLOR and not TEXT_MODE)) and not (SCREEN_MODE(1) or SCREEN_MODE(0));  -- Color or B&W mode
+
   -- Simulate power up on cold reset to go to the disk boot routine
   ram_we   <= we_ram when reset_cold = '0' else '1';
   ram_addr <= std_logic_vector(a_ram) when reset_cold = '0' else std_logic_vector(to_unsigned(1012,ram_addr'length)); -- $3F4
@@ -210,6 +213,7 @@ begin
     ram_we         => we_ram,
     VIDEO          => VIDEO,
     COLOR_LINE     => COLOR_LINE,
+    TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
     VBL            => VBL,
     K              => K,
