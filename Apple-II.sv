@@ -29,7 +29,7 @@ module emu
 	input         RESET,
 
 	//Must be passed to hps_io module
-	inout  [45:0] HPS_BUS,
+	inout  [48:0] HPS_BUS,
 
 	//Base video clock. Usually equals to CLK_SYS.
 	output        CLK_VIDEO,
@@ -323,10 +323,6 @@ reg [1:0] screen_mode;
 reg       text_color;
 
 always @(status[21:19]) case (status[21:19])
-	3'b000: begin
-		screen_mode = 2'b00;
-		text_color = 0;
-	end
 	3'b001: begin
 		screen_mode = 2'b00;
 		text_color = 1;
@@ -341,6 +337,10 @@ always @(status[21:19]) case (status[21:19])
 	end
 	3'b100: begin
 		screen_mode = 2'b11;
+		text_color = 0;
+	end
+	default: begin
+		screen_mode = 2'b00;
 		text_color = 0;
 	end
 endcase // always @ (status[21:19])
