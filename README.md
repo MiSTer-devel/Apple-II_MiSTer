@@ -4,7 +4,7 @@ This is a MiSTer port of the Apple IIe core from MiST.
 
 ## Description
 
-This the MiST port of a reconstruction of an 1980s-era Apple ][+ implemented in VHDL for FPGAs.  
+This the MiST port of a reconstruction of an 1980s-era Apple ]\[+ implemented in VHDL for FPGAs.  
 Original for the DE2: http://www1.cs.columbia.edu/~sedwards/apple2fpga/  
 Port for the MiST: http://ws0.org/tag/apple2/
 
@@ -27,6 +27,10 @@ Port for the MiST: http://ws0.org/tag/apple2/
 Apple-II has a big mess in disk formats. DSK image may contain either DO or PO format. Even PO and DO may contain opposite format. So if PO disk doesn't work, then try to rename it to DO. If DO or DSK doesn't work then try to rename it to PO.
 
 For HDD, only HDV images (raw ProDOS partition images) 32MB in size are supported. 2MG images may work if the 64-byte header is removed.
+```bash
+dd if=diskimage.2mg of=diskimage.hdv bs=64 skip=1
+```
+
 
 ## Instructions
 

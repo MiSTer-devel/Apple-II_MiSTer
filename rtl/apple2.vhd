@@ -48,6 +48,8 @@ entity apple2 is
     STB            : buffer std_logic;           -- Pulses high when C04x read
     IO_SELECT      : out std_logic_vector(7 downto 0);
     DEVICE_SELECT  : out std_logic_vector(7 downto 0);
+    IO_STROBE      : out std_logic;
+
     speaker        : out std_logic              -- One-bit speaker output
     );
 end apple2;
@@ -121,7 +123,7 @@ architecture rtl of apple2 is
   signal SOFTSWITCH_SELECT : std_logic;
   signal ROM_SELECT : std_logic;
   signal GAMEPORT_SELECT : std_logic;
-  signal IO_STROBE : std_logic;
+  --signal IO_STROBE : std_logic;
   signal HRAM_CONTROL : std_logic;
   signal C01X_SELECT : std_logic;
 
