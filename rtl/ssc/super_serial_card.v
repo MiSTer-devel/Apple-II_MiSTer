@@ -35,21 +35,15 @@ module superserial(
 );
 
 
-// CHECK THIS LOGIC
-// we need to latch the rom with IO_SELECT_n -- and clear it based on CFFF
-// IO_STROBE
+//  The Super Serial Card has 
+//  a 2k rom.
+//  The 256byte section actually starts at address 0x700
+//  The full 2k rom is mapped in when the card is selected (into a shared
+//  address space)
+//
+//  All cards unamp their 2k rom when they see CFFF1
+//  
 
-reg rom_enabled;
-always @(posedge CLK_14M)
-begin
-   if (RESET) 
-	rom_enabled<=0;
-   else if (~IO_STROBE_N && (ADDRESS[10:0]=='h7FF))  //  CFFF clears the line 
-	rom_enabled<=0;
-   else if (~IO_SELECT_N)
-	rom_enabled<=1;
-	 
-end
 //
 // Super Serial Rom
 //
@@ -66,33 +60,22 @@ assign SSC =
 //      Bits 7=SW1-1 6=SW1-2 5=SW1-3 4=SW1-4 3=X     2=X     1=SW1-5 0=SW1-6
 //        OFF     OFF     OFF     ON      1       1       ON      ON
 //      | 9600 BAUD                     |               | SSC Firmware Mode
-                                                                        (ADDRESS[3:0]  == 4'h1)         ?        8'b11101100:
+     (ADDRESS[3:0]  == 4'h1)        ?        8'b11101100:
 //      Bits 7=SW2-1 6=X     5=SW2-2 4=X     3=SW2-3 2=SW2=4 1=SW2-5 0=CTS
 //        ON      1       ON      1       ON      ON      ON
 //      |1 STOP |       |8 BITS |       | No Parity     |Add LF | CTS
-                                                                        (ADDRESS[3:0]  == 4'h2)         ?       {7'b0101000, UART_CTS}:
-         //(ADDRESS[3:0]  == 4'h5)         ?      8'h38:
-         //(ADDRESS[3:0]  == 4'h7)         ?      8'h18:
-         //(ADDRESS[3:0]  == 4'hB)         ?      8'h01:
-         //(ADDRESS[3:0]  == 4'hC)         ?      8'h31:
-													(ADDRESS[3]     == 1'b1)                ?        DATA_SERIAL_OUT:											
-                                                                                   8'b11111111;
+     (ADDRESS[3:0]  == 4'h2)        ?       {7'b0101000, UART_CTS}:
+     (ADDRESS[3]    == 1'b1)        ?        DATA_SERIAL_OUT: 8'b11111111;
 /*
-AJS -- TESTING
-
+  Map and Unmap the ROM - setup ROM_EN and ENA_C8S
 */
 reg				SLOTCXROM;
-wire				ENA_C8I;
 wire				ENA_C8S;
 reg				C8S2;
-reg				C8I;
 wire APPLE_C0;
-wire				SLOT_2IO;	// COM2
 
 
-
-assign APPLE_C0	= (ADDRESS[15:8]	== 8'b11000000)							?	1'b1:
-																									1'b0;
+assign APPLE_C0	= (ADDRESS[15:8]	== 8'b11000000) ? 1'b1: 1'b0;
 
 always @(posedge CLK_14M)
 begin
@@ -117,7 +100,6 @@ always @ (posedge CLK_14M)
 begin
 	if(RESET)
 	begin
-		C8I <= 1'b0;
 		C8S2 <= 1'b0;
 	end
 	else
@@ -134,15 +116,13 @@ begin
 			begin
 				if(ADDRESS[7:0] == 8'hFF)
 				  C8S2 <= 1'b0;
-				//	C8I <= 1'b0;
 			end
 		end
 		endcase
 	end
 end
-//assign SLOT_2IO	= (ADDRESS[15:4]	== 12'hC0A)									?	1'b1: 1'b0;
-assign ENA_C8S =	({(C8S2 & !SLOTCXROM),ADDRESS[15:11]} == 6'b111001)					?	1'b1: 1'b0;
-																		
+
+assign ENA_C8S = ({(C8S2 & !SLOTCXROM),ADDRESS[15:11]} == 6'b111001) ? 1'b1: 1'b0;
 assign ROM_EN = ENA_C8S;
 //assign DATA_OUT2 = ENA_C8S ? DOA_C8S : SSC;
 																									
@@ -159,18 +139,8 @@ end
 
 wire [10:0] ROM_ADDR = ROM_EN ? ADDRESS[10:0] : { 3'b111 ,ADDRESS[7:0]} ;
 assign DATA_OUT = ~IO_SELECT_N ? DOA_C8S : (ROM_EN & ~IO_STROBE_N) ? DOA_C8S : SSC;
-//assign DATA_OUT = ~DEVICE_SELECT_N? SSC : ~IO_SELECT_N ? DOA_C8S : (ROM_EN & ~IO_STROBE_N) ? DOA_C8S : DOA_C8S;
 
 ssc_rom rom (.clk(CLK_14M),.addr(ROM_ADDR),.data(DOA_C8S));
-/*
-   rom #(8,11,"rtl/roms/superserialcard.hex") roms (
-           .clock(CLK_14M),
-           .ce(1'b1),
-           .a(ROM_ADDR),
-           .data_out(DOA_C8S)
-   );
-*/
-
 //
 //  Serial Port
 //
