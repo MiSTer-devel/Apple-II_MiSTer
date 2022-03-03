@@ -22,7 +22,9 @@ entity keyboard is
     reads    : in std_logic;            -- Read strobe
     reset    : in std_logic;
     akd      : buffer std_logic;        -- Any key down
-    K        : out unsigned(7 downto 0) -- Latched, decoded keyboard data
+    K        : out unsigned(7 downto 0); -- Latched, decoded keyboard data
+    open_apple:out std_logic;
+    closed_apple:out std_logic
     );
 end keyboard;
 
@@ -45,6 +47,8 @@ architecture rtl of keyboard is
   constant RIGHT_SHIFT      : unsigned(7 downto 0) := X"59";
   constant LEFT_CTRL        : unsigned(7 downto 0) := X"14";
   constant CAPS_LOCK        : unsigned(7 downto 0) := X"58";
+  constant WINDOWS          : unsigned(7 downto 0) := X"1F";
+  constant ALT              : unsigned(7 downto 0) := X"11";
 
   type states is (IDLE,
                   HAVE_CODE,
@@ -88,18 +92,28 @@ begin
     if reset = '1' then
       shift <= '0';
       ctrl <= '0';
+      open_apple<='0';
+      closed_apple<='0';
     elsif rising_edge(CLK_14M) then
       if state = HAVE_CODE then
         if code = LEFT_SHIFT or code = RIGHT_SHIFT then
           shift <= '1';
         elsif code = LEFT_CTRL then
           ctrl <= '1';
+        elsif code = WINDOWS then
+          open_apple <= '1';
+        elsif code = ALT then
+          closed_apple <= '1';
         end if;
       elsif state = KEY_UP then
         if code = LEFT_SHIFT or code = RIGHT_SHIFT then
           shift <= '0';
         elsif code = LEFT_CTRL then
           ctrl <= '0';
+        elsif code = WINDOWS then
+          open_apple <= '0';
+        elsif code = ALT then
+          closed_apple <= '0';
         end if;
       end if;
     end if;
