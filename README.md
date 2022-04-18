@@ -19,7 +19,7 @@ Port for the MiST: http://ws0.org/tag/apple2/
 * color, amber, green and black&white monitor
 * language card in slot 0
 * 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
-* Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/index.php?p=1_28)
+* Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/?page_id=3447 , under "Saturn RAMSoft")
 * Mockingboard model A (two AY-3-8913 chips for six audio channels) in slot 4
 
 ## Disk format notes
@@ -57,7 +57,7 @@ or
 The call command will enter the Monitor. Type the call a second time if the * prompt won't
 show the first time. 
 At the Monitor you can also type 6 and then Ctrl-P followed by return.
-See http://vectronicsappleworld.com/appleii/dos.html#bootdos
+See https://web.archive.org/web/20140827184511/http://vectronicsappleworld.com:80/appleii/dos.html#bootdos
 
 The HDD interface is in slot 7. Unlike the floppy interface, it does not stall until an image is mounted, so either reset the machine or use one of the following after mounting an image:
 
