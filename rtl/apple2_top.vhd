@@ -24,6 +24,8 @@ use ieee.numeric_std.all;
 entity apple2_top is
 port (
 	CLK_14M        : in std_logic;
+	CLK_50M        : in std_logic;
+
 
 	reset_cold     : in std_logic;
 	reset_warm     : in std_logic;
@@ -46,6 +48,8 @@ port (
 	g              : out std_logic_vector(7 downto 0);
 	b              : out std_logic_vector(7 downto 0);
 	SCREEN_MODE    : in  std_logic_vector(1 downto 0); -- 00: Color, 01: B&W, 10:Green, 11: Amber
+	TEXT_COLOR     : in  std_logic; -- 1 = color processing for
+	                                -- text lines in mixed modes
 
 	PS2_Key        : in  std_logic_vector(10 downto 0);
 	joy            : in  std_logic_vector(5 downto 0);
@@ -56,39 +60,85 @@ port (
 
 	-- disk control
 	TRACK 			: out unsigned(5 downto 0);
-	DISK_RAM_ADDR : in  unsigned(12 downto 0);
+	DISK_RAM_ADDR  : in  unsigned(12 downto 0);
 	DISK_RAM_DI 	: in  unsigned(7 downto 0);
-	DISK_RAM_DO     : out unsigned(7 downto 0);
+	DISK_RAM_DO    : out unsigned(7 downto 0);
 	DISK_RAM_WE 	: in  std_logic;
 	DISK_ACT       : out std_logic;
 
 	-- HDD control
-	HDD_SECTOR   : out unsigned(15 downto 0);
-        HDD_READ     : out std_logic;
-        HDD_WRITE    : out std_logic;
-        HDD_MOUNTED  : in  std_logic;
-        HDD_PROTECT  : in  std_logic;
+	HDD_SECTOR     : out unsigned(15 downto 0);
+	HDD_READ       : out std_logic;
+	HDD_WRITE      : out std_logic;
+	HDD_MOUNTED    : in  std_logic;
+	HDD_PROTECT    : in  std_logic;
+	HDD_RAM_ADDR   : in  unsigned(8 downto 0);
+	HDD_RAM_DI     : in  unsigned(7 downto 0);
+	HDD_RAM_DO     : out unsigned(7 downto 0);
+	HDD_RAM_WE     : in  std_logic;
 
 	AUDIO_L        : out std_logic_vector(9 downto 0);
 	AUDIO_R        : out std_logic_vector(9 downto 0);
-	TAPE_IN        : in  std_logic
+	TAPE_IN        : in  std_logic;
+
+	UART_TXD       :out  std_logic;
+	UART_RXD       :in  std_logic;
+	UART_RTS       :out  std_logic;
+	UART_CTS       :in  std_logic;
+	UART_DTR       :out  std_logic;
+	UART_DSR       :in  std_logic
+
 );
 end apple2_top;
 
 architecture arch of apple2_top is
+  component superserial is
+    port (
+	CLK_14M  	: in std_logic;
+	CLK_2M  	: in std_logic;
+	CLK_50M		: in std_logic;
+	PH_2    	: in std_logic;
+	IO_SELECT_N	: in std_logic;
+	DEVICE_SELECT_N : in std_logic;
+	IO_STROBE_N  	: in std_logic;
+	ADDRESS     	: std_logic_vector(15 downto 0);
+	RW_N        	: in std_logic;
+	RESET      	: in std_logic;
+	DATA_IN    	: in std_logic_vector(7 downto 0);
+	DATA_OUT   	: out std_logic_vector(7 downto 0);
+	ROM_EN 		: out std_logic;
+	UART_CTS 	: in std_logic;
+	UART_RTS 	: out std_logic;
+	UART_RXD 	: in std_logic;
+	UART_TXD 	: out std_logic;
+	UART_DTR 	: out std_logic;
+	UART_DSR 	: in std_logic;
+	IRQ_N 		: out std_logic);
+
+
+  end component;
+
 
   signal CLK_2M, CLK_2M_D, PHASE_ZERO : std_logic;
   signal IO_SELECT, DEVICE_SELECT : std_logic_vector(7 downto 0);
+  signal IO_STROBE : std_logic;
+
   signal ADDR : unsigned(15 downto 0);
   signal D, PD: unsigned(7 downto 0);
   signal DISK_DO, PSG_DO, HDD_DO : unsigned(7 downto 0);
   signal cpu_we : std_logic;
   signal psg_irq_n, psg_nmi_n : std_logic;
+  signal ssc_irq_n: std_logic;
+
+  signal SSC_ROM_EN : std_logic;
+  signal SSC_DO     : unsigned(7 downto 0);
+
 
   signal we_ram : std_logic;
   signal VIDEO, HBL, VBL : std_logic;
   signal COLOR_LINE : std_logic;
   signal COLOR_LINE_CONTROL : std_logic;
+  signal TEXT_MODE : std_logic;
   signal GAMEPORT : std_logic_vector(7 downto 0);
 
   signal K : unsigned(7 downto 0);
@@ -110,6 +160,8 @@ architecture arch of apple2_top is
   signal joyx       : std_logic;
   signal joyy       : std_logic;
   signal pdl_strobe : std_logic;
+  signal open_apple : std_logic;
+  signal closed_apple : std_logic;
 
 begin
 
@@ -137,7 +189,7 @@ begin
   -- GAMEPORT input bits:
   --  7    6    5    4    3   2   1    0
   -- pdl3 pdl2 pdl1 pdl0 pb3 pb2 pb1 casette
-  GAMEPORT <=  "00" & joyy & joyx & "0" & joy(5) & joy(4) & TAPE_IN;
+  GAMEPORT <=  "00" & joyy & joyx & "0" & (joy(5) or closed_apple)& (joy(4) or open_apple) & TAPE_IN;
   
   process(CLK_14M, pdl_strobe)
     variable cx, cy : integer range -100 to 5800 := 0;
@@ -175,8 +227,8 @@ begin
     end if;
   end process;
 
-  COLOR_LINE_CONTROL <= COLOR_LINE and not (SCREEN_MODE(1) or SCREEN_MODE(0));  -- Color or B&W mode
-  
+  COLOR_LINE_CONTROL <= (COLOR_LINE or (TEXT_COLOR and not TEXT_MODE)) and not (SCREEN_MODE(1) or SCREEN_MODE(0));  -- Color or B&W mode
+
   -- Simulate power up on cold reset to go to the disk boot routine
   ram_we   <= we_ram when reset_cold = '0' else '1';
   ram_addr <= std_logic_vector(a_ram) when reset_cold = '0' else std_logic_vector(to_unsigned(1012,ram_addr'length)); -- $3F4
@@ -184,6 +236,7 @@ begin
 
   PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
+        SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
 
   core : entity work.apple2 port map (
@@ -201,11 +254,12 @@ begin
     aux            => ram_aux,
     PD             => PD,
     CPU_WE         => cpu_we,
-    IRQ_N          => psg_irq_n,
+    IRQ_N          => psg_irq_n and ssc_irq_n,
     NMI_N          => psg_nmi_n,
     ram_we         => we_ram,
     VIDEO          => VIDEO,
     COLOR_LINE     => COLOR_LINE,
+    TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
     VBL            => VBL,
     K              => K,
@@ -216,6 +270,8 @@ begin
     PDL_strobe     => pdl_strobe,
     IO_SELECT      => IO_SELECT,
     DEVICE_SELECT  => DEVICE_SELECT,
+    IO_STROBE      => IO_STROBE,
+
     speaker        => audio(7)
     );
 
@@ -241,7 +297,9 @@ begin
     reset    => reset,
     reads    => read_key,
     K        => K,
-    akd      => akd
+    akd      => akd,
+    open_apple => open_apple,
+    closed_apple => closed_apple
     );
 
   disk : entity work.disk_ii port map (
@@ -264,6 +322,7 @@ begin
     );
 
   DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
+  DISK_RAM_DO <= (others => '0');
 
   hdd : entity work.hdd port map (
     CLK_14M        => CLK_14M,
@@ -279,10 +338,10 @@ begin
     hdd_write      => HDD_WRITE,
     hdd_mounted    => HDD_MOUNTED,
     hdd_protect    => HDD_PROTECT,
-    ram_addr       => DISK_RAM_ADDR(8 downto 0),
-    ram_di         => DISK_RAM_DI,
-    ram_do         => DISK_RAM_DO,
-    ram_we         => DISK_RAM_WE
+    ram_addr       => HDD_RAM_ADDR,
+    ram_di         => HDD_RAM_DI,
+    ram_do         => HDD_RAM_DO,
+    ram_we         => HDD_RAM_WE
     );
 
   mb : work.mockingboard
@@ -302,6 +361,31 @@ begin
       unsigned(O_AUDIO_L) => psg_audio_l,
       unsigned(O_AUDIO_R) => psg_audio_r
       );
+
+   ssc : component superserial
+     port map (
+	CLK_50M 	=> CLK_50M,
+	CLK_14M     	=> CLK_14M,
+	CLK_2M      	=> CLK_2M,
+	PH_2        	=> PHASE_ZERO,
+	IO_SELECT_N 	=> not IO_SELECT(2),
+	DEVICE_SELECT_N => not DEVICE_SELECT(2),
+	IO_STROBE_N  	=> NOT IO_STROBE,
+	ADDRESS     	=> std_logic_vector(ADDR),
+	RW_N        	=> not cpu_we,
+	RESET       	=> reset,
+	DATA_IN     	=> std_logic_vector(D),
+	unsigned(DATA_OUT) => SSC_DO,
+	ROM_EN 		=> SSC_ROM_EN,
+	UART_CTS 	=> UART_CTS,
+	UART_RTS 	=> UART_RTS,
+	UART_RXD 	=> UART_RXD,
+	UART_TXD 	=> UART_TXD,
+	UART_DTR 	=> UART_DTR,
+	UART_DSR 	=> UART_DSR,
+	IRQ_N 		=> ssc_irq_n
+	);
+
 
   audio(6 downto 0) <= (others => '0');
   audio(9 downto 8) <= (others => '0');

@@ -22,7 +22,9 @@ entity keyboard is
     reads    : in std_logic;            -- Read strobe
     reset    : in std_logic;
     akd      : buffer std_logic;        -- Any key down
-    K        : out unsigned(7 downto 0) -- Latched, decoded keyboard data
+    K        : out unsigned(7 downto 0); -- Latched, decoded keyboard data
+    open_apple:out std_logic;
+    closed_apple:out std_logic
     );
 end keyboard;
 
@@ -33,7 +35,6 @@ architecture rtl of keyboard is
   signal junction_code      : std_logic_vector(7 downto 0);
   signal code, latched_code : unsigned(7 downto 0);
   signal ext, latched_ext   : std_logic;
-  signal code_available     : std_logic;  
 
   signal key_pressed        : std_logic;  -- Key pressed & not read
   signal ctrl,shift,caplock : std_logic;
@@ -46,6 +47,8 @@ architecture rtl of keyboard is
   constant RIGHT_SHIFT      : unsigned(7 downto 0) := X"59";
   constant LEFT_CTRL        : unsigned(7 downto 0) := X"14";
   constant CAPS_LOCK        : unsigned(7 downto 0) := X"58";
+  constant WINDOWS          : unsigned(7 downto 0) := X"1F";
+  constant ALT              : unsigned(7 downto 0) := X"11";
 
   type states is (IDLE,
                   HAVE_CODE,
@@ -89,31 +92,33 @@ begin
     if reset = '1' then
       shift <= '0';
       ctrl <= '0';
+      open_apple<='0';
+      closed_apple<='0';
     elsif rising_edge(CLK_14M) then
       if state = HAVE_CODE then
         if code = LEFT_SHIFT or code = RIGHT_SHIFT then
           shift <= '1';
         elsif code = LEFT_CTRL then
           ctrl <= '1';
+        elsif code = WINDOWS then
+          open_apple <= '1';
+        elsif code = ALT then
+          closed_apple <= '1';
         end if;
       elsif state = KEY_UP then
         if code = LEFT_SHIFT or code = RIGHT_SHIFT then
           shift <= '0';
         elsif code = LEFT_CTRL then
           ctrl <= '0';
+        elsif code = WINDOWS then
+          open_apple <= '0';
+        elsif code = ALT then
+          closed_apple <= '0';
         end if;
       end if;
     end if;
   end process shift_ctrl;
 
-  process (CLK_14M)
-  begin
-    if rising_edge(CLK_14M) then
-		old_stb <= ps2_key(10);
-		code_available <= old_stb xor ps2_key(10);
-    end if;
-  end process;
-  
   code <= unsigned(ps2_key(7 downto 0));
   ext <= ps2_key(8);
 
@@ -127,6 +132,9 @@ begin
     elsif rising_edge(CLK_14M) then
       state <= next_state;
       if reads = '1' then key_pressed <= '0'; end if;
+      if state = HAVE_CODE then
+        old_stb <= ps2_key(10);
+      end if;
       if state = GOT_KEY_UP_CODE then
         akd <= '0';
       end if;
@@ -151,12 +159,12 @@ begin
     end if;
   end process fsm;
 
-  fsm_next_state : process (code, code_available, state)
+  fsm_next_state : process (code, old_stb, ps2_key, state)
   begin
     next_state <= state;
     case state is
       when IDLE =>
-        if code_available = '1' then next_state <= HAVE_CODE; end if;
+        if old_stb /= ps2_key(10) then next_state <= HAVE_CODE; end if;
 
       when HAVE_CODE =>
         next_state <= DECODE;

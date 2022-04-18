@@ -33,6 +33,7 @@ entity apple2 is
     ram_we         : out std_logic;              -- RAM write enable
     VIDEO          : out std_logic;
     COLOR_LINE     : out std_logic;
+    TEXT_MODE      : buffer std_logic;
     HBL            : out std_logic;
     VBL            : buffer std_logic;
     K              : in unsigned(7 downto 0);    -- Keyboard data
@@ -47,6 +48,8 @@ entity apple2 is
     STB            : buffer std_logic;           -- Pulses high when C04x read
     IO_SELECT      : out std_logic_vector(7 downto 0);
     DEVICE_SELECT  : out std_logic_vector(7 downto 0);
+    IO_STROBE      : out std_logic;
+
     speaker        : out std_logic              -- One-bit speaker output
     );
 end apple2;
@@ -78,7 +81,6 @@ architecture rtl of apple2 is
   
   -- Soft switches
   signal soft_switches : std_logic_vector(7 downto 0) := "00000000";
-  signal TEXT_MODE : std_logic;
   signal MIXED_MODE : std_logic;
   signal PAGE2 : std_logic;
   signal HIRES_MODE : std_logic;
@@ -121,8 +123,9 @@ architecture rtl of apple2 is
   signal SOFTSWITCH_SELECT : std_logic;
   signal ROM_SELECT : std_logic;
   signal GAMEPORT_SELECT : std_logic;
-  signal IO_STROBE : std_logic;
+  --signal IO_STROBE : std_logic;
   signal HRAM_CONTROL : std_logic;
+  signal C01X_SELECT : std_logic;
 
   -- Speaker signal
   signal speaker_sig : std_logic := '0';        
@@ -210,7 +213,7 @@ begin
     ROM_SELECT <= '0';
     RAM_SELECT <= '0';
     KEYBOARD_SELECT <= '0';
-    READ_KEY <= '0';
+    C01X_SELECT <= '0';
     TAPE_OUT <= '0';
     SPEAKER_SELECT <= '0';
     SOFTSWITCH_SELECT <= '0';
@@ -233,7 +236,7 @@ begin
                   when x"0" =>          -- C000 - C00F
                      KEYBOARD_SELECT <= '1';
                   when x"1" =>          -- C010 - C01F
-                     READ_KEY <= '1';
+                    C01X_SELECT <= '1';
                   when x"2" =>          -- C020 - C02F
                     TAPE_OUT <= '1';
                   when x"3" =>          -- C030 - C03F
@@ -364,6 +367,7 @@ begin
       COL80 <= '0';
       ALTCHAR <= '0';
     elsif rising_edge(CLK_14M) then
+      READ_KEY <= '0';
       if A(15 downto 8) = x"C3" and C3ROM = '0' then
         C8ROM <= '1';
       elsif A = x"CFFF" then
@@ -381,9 +385,11 @@ begin
         when "111" => ALTCHAR <= A(0);
         when others => null;
         end case;
-      elsif READ_KEY = '1' and we = '0' then
+      elsif C01X_SELECT = '1' and we = '0' then
         case A(3 downto 0) is
-        when x"0" => SF_D <= AKD;
+        when x"0" =>
+          SF_D <= AKD;
+          READ_KEY <= '1';
         when x"1" => SF_D <= not HRAM_BANK1;
         when x"2" => SF_D <= HRAM_READ;
         when x"3" => SF_D <= RAMRD;
@@ -401,6 +407,8 @@ begin
         when x"F" => SF_D <= COL80;
         when others => null;
         end case;
+      elsif C01X_SELECT = '1' and we = '1' then
+        READ_KEY <= '1';
       end if;
     end if;
   end process softswitches_IIe;
@@ -409,7 +417,7 @@ begin
 
   D_IN <= CPU_DL when RAM_SELECT = '1' or HRAM_READ_EN = '1' or ram_card_read = '1' else  -- RAM
           K when KEYBOARD_SELECT = '1' else  -- Keyboard
-          SF_D & K(6 downto 0) when READ_KEY = '1' else -- ][e softswitches
+          SF_D & K(6 downto 0) when C01X_SELECT = '1' else -- ][e softswitches
           GAMEPORT(TO_INTEGER(A(2 downto 0))) & VIDEO_DL(6 downto 0)  -- Gameport
              when GAMEPORT_SELECT = '1' else
           rom_out when ROM_SELECT = '1' else  -- ROMs
