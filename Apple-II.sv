@@ -206,6 +206,7 @@ parameter CONF_STR = {
 	"Apple-II;UART19200:9600:4800:2400:1200:300;",
 	"-;",
 	"S0,NIBDSKDO PO ;",
+	"S2,NIBDSKDO PO ;",
 	"S1,HDV;",
 	"-;",
 	"OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -251,20 +252,21 @@ wire  [7:0] paddle_0;
 
 wire [10:0] ps2_key;
 
-wire [31:0] sd_lba[2];
-reg   [1:0] sd_rd;
-reg   [1:0] sd_wr;
-wire  [1:0] sd_ack;
+wire [31:0] sd_lba[3];
+reg   [2:0] sd_rd;
+reg   [2:0] sd_wr;
+wire  [2:0] sd_ack;
 wire  [8:0] sd_buff_addr;
 wire  [7:0] sd_buff_dout;
-wire  [7:0] sd_buff_din[2];
+wire  [7:0] sd_buff_din[3];
 wire        sd_buff_wr;
-wire  [1:0] img_mounted;
+wire  [2:0] img_mounted;
 wire        img_readonly;
 
 wire [63:0] img_size;
+wire [64:0] RTC;
 
-hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
+hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -292,7 +294,10 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(2)) hps_io
 
 	.joystick_0(joystick_0),
 	.joystick_l_analog_0(joystick_a0),
-	.paddle_0(paddle_0)
+	.paddle_0(paddle_0),
+	
+	.RTC(RTC)
+
 );
 
 ///////////////////////////////////////////////////
@@ -351,7 +356,7 @@ apple2_top apple2_top
 	.CLK_14M(clk_sys),
 	.CLK_50M(CLK_50M),
 
-	.CPU_WAIT(cpu_wait_hdd | cpu_wait_fdd),
+	.CPU_WAIT(cpu_wait_hdd /*| cpu_wait_fdd*/),
 	.cpu_type(status[5]),
 
 	.reset_cold(RESET | status[0]),
@@ -378,10 +383,25 @@ apple2_top apple2_top
 
 	.mb_enabled(~status[4]),
 
-	.TRACK(track),
-	.DISK_RAM_ADDR({track_sec, sd_buff_addr}),
+	
+	 .TRACK1(TRACK1),
+    .TRACK1_ADDR(TRACK1_RAM_ADDR),
+    .TRACK1_DI(TRACK1_RAM_DI),
+    .TRACK1_DO (TRACK1_RAM_DO),
+    .TRACK1_WE (TRACK1_RAM_WE),
+    .TRACK1_BUSY (TRACK1_RAM_BUSY),
+    //-- Track buffer interface disk 2
+	 .TRACK2(TRACK2),
+    .TRACK2_ADDR(TRACK2_RAM_ADDR),
+    .TRACK2_DI(TRACK2_RAM_DI),
+    .TRACK2_DO (TRACK2_RAM_DO),
+    .TRACK2_WE (TRACK2_RAM_WE),
+    .TRACK2_BUSY (TRACK2_RAM_BUSY),
+	
+	//.TRACK(track),
+	//.DISK_RAM_ADDR({track_sec, sd_buff_addr}),
 	.DISK_RAM_DI(sd_buff_dout),
-	.DISK_RAM_DO(sd_buff_din[0]),
+	//.DISK_RAM_DO(sd_buff_din[0]),
 	.DISK_RAM_WE(sd_buff_wr & sd_ack[0]),
 
 	.HDD_SECTOR(sd_lba[1]),
@@ -407,7 +427,8 @@ apple2_top apple2_top
 	.UART_RTS(UART_RTS),
 	.UART_CTS(UART_CTS),
 	.UART_DTR(UART_DTR),
-	.UART_DSR(UART_DSR)
+	.UART_DSR(UART_DSR),
+	.RTC(RTC)
 
 );
 
@@ -506,6 +527,129 @@ always @(posedge clk_sys) begin
 	end
 end
 
+
+always @(posedge clk_sys) begin
+	if (img_mounted[0]) begin
+		disk_mount <= img_size != 0;
+		//disk_protect <= img_readonly;
+	end
+end
+	
+wire D1_ACTIVE,D2_ACTIVE;
+wire TRACK1_RAM_BUSY;
+wire [12:0] TRACK1_RAM_ADDR;
+wire [7:0] TRACK1_RAM_DI;
+wire [7:0] TRACK1_RAM_DO;
+wire TRACK1_RAM_WE;
+wire [5:0] TRACK1;
+
+wire TRACK2_RAM_BUSY;
+wire [12:0] TRACK2_RAM_ADDR;
+wire [7:0] TRACK2_RAM_DI;
+wire [7:0] TRACK2_RAM_DO;
+wire TRACK2_RAM_WE;
+wire [5:0] TRACK2;
+
+wire [1:0] DISK_READY;
+wire [1:0] DISK_CHANGE;
+wire [63:0] disk_size;
+wire disk_mount;
+
+
+floppy_track floppy_track_1
+(
+   .clk(clk_sys),
+	.reset(dd_reset),
+	
+	.ram_addr(TRACK1_RAM_ADDR),
+	.ram_di(TRACK1_RAM_DI),
+	.ram_do(TRACK1_RAM_DO),
+	.ram_we(TRACK1_RAM_WE),
+	
+	.track (TRACK1),
+	.busy  (TRACK1_RAM_BUSY),
+   .change(DISK_CHANGE[0]),
+   .mount (disk_mount),
+   .ready  (DISK_READY[0]),
+   .active (D1_ACTIVE),
+
+   .sd_buff_addr (sd_buff_addr),
+   .sd_buff_dout (sd_buff_dout),
+   .sd_buff_din  ( sd_buff_din[0]),
+   .sd_buff_wr   (sd_buff_wr & sd_ack[0]),
+
+   .sd_lba       (sd_lba[0] ),
+   .sd_rd        (sd_rd[0]),
+   .sd_wr       ( sd_wr[0]),
+   .sd_ack       (sd_ack[0])	
+);
+
+/*
+	 
+
+  disk_mount <= '0' when disk_size = x"0000000000000000" else '1';
+  sd_lba <= SD_LBA2 when sd_rd(1) = '1' or sd_wr(1) = '1' else SD_LBA1;
+  sd_data_in <= SD_DATA_IN2 when sd_ack(1) = '1' else SD_DATA_IN1;
+  
+  sdcard_interface1: mist_sd_card port map (
+    clk          => CLK_14M,
+    reset        => reset,
+
+    ram_addr     => TRACK1_RAM_ADDR, -- in unsigned(12 downto 0);
+    ram_di       => TRACK1_RAM_DI,   -- in unsigned(7 downto 0);
+    ram_do       => TRACK1_RAM_DO,   -- out unsigned(7 downto 0);
+    ram_we       => TRACK1_RAM_WE,
+
+    track        => std_logic_vector(TRACK1),
+    busy         => TRACK1_RAM_BUSY,
+    change       => DISK_CHANGE(0),
+    mount        => disk_mount,
+    ready        => DISK_READY(0),
+    active       => D1_ACTIVE,
+
+    sd_buff_addr => sd_buff_addr,
+    sd_buff_dout => sd_data_out,
+    sd_buff_din  => SD_DATA_IN1,
+    sd_buff_wr   => sd_data_out_strobe,
+
+    sd_lba       => SD_LBA1,
+    sd_rd        => sd_rd(0),
+    sd_wr        => sd_wr(0),
+    sd_ack       => sd_ack(0)
+  );
+
+  sdcard_interface2: mist_sd_card port map (
+    clk          => CLK_14M,
+    reset        => reset,
+
+    ram_addr     => TRACK2_RAM_ADDR, -- in unsigned(12 downto 0);
+    ram_di       => TRACK2_RAM_DI,   -- in unsigned(7 downto 0);
+    ram_do       => TRACK2_RAM_DO,   -- out unsigned(7 downto 0);
+    ram_we       => TRACK2_RAM_WE,
+
+    track        => std_logic_vector(TRACK2),
+    busy         => TRACK2_RAM_BUSY,
+    change       => DISK_CHANGE(1),
+    mount        => disk_mount,
+    ready        => DISK_READY(1),
+    active       => D2_ACTIVE,
+
+    sd_buff_addr => sd_buff_addr,
+    sd_buff_dout => sd_data_out,
+    sd_buff_din  => SD_DATA_IN2,
+    sd_buff_wr   => sd_data_out_strobe,
+
+    sd_lba       => SD_LBA2,
+    sd_rd        => sd_rd(1),
+    sd_wr        => sd_wr(1),
+    sd_ack       => sd_ack(1)
+  );
+	 
+*/
+
+
+
+/*
 assign      sd_lba[0] = lba_fdd;
 wire  [5:0] track;
 reg   [3:0] track_sec;
@@ -551,7 +695,7 @@ always @(posedge clk_sys) begin
 		end
 	end
 end
-
+*/
 wire tape_adc, tape_adc_act;
 ltc2308_tape ltc2308_tape
 (

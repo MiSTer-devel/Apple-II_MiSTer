@@ -59,13 +59,37 @@ port (
 	mb_enabled 		: in std_logic;
 
 	-- disk control
-	TRACK 			: out unsigned(5 downto 0);
+	--TRACK 			: out unsigned(5 downto 0);
 	DISK_RAM_ADDR  : in  unsigned(12 downto 0);
 	DISK_RAM_DI 	: in  unsigned(7 downto 0);
-	DISK_RAM_DO    : out unsigned(7 downto 0);
+	--DISK_RAM_DO    : out unsigned(7 downto 0);
 	DISK_RAM_WE 	: in  std_logic;
 	DISK_ACT       : out std_logic;
+   -- new disk control
+    TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
+    TRACK1_ADDR    : out unsigned(12 downto 0);
+    TRACK1_DI      : out unsigned( 7 downto 0);
+    TRACK1_DO      : in  unsigned( 7 downto 0);
+    TRACK1_WE      : out std_logic;
+    TRACK1_BUSY    : in  std_logic;
+    -- Track buffer interface disk 2
+    TRACK2         : out unsigned( 5 downto 0); -- Current track (0-34)
+    TRACK2_ADDR    : out unsigned(12 downto 0);
+    TRACK2_DI      : out unsigned( 7 downto 0);
+    TRACK2_DO      : in  unsigned( 7 downto 0);
+    TRACK2_WE      : out std_logic;
+    TRACK2_BUSY    : in  std_logic;
+	 
+    D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
+    D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
 
+    DISK_READY     : in  std_logic_vector(1 downto 0);
+
+  --signal disk_change : std_logic_vector(1 downto 0);
+  --signal disk_size : std_logic_vector(63 downto 0);
+  --signal disk_mount : std_logic;
+	 
+	 
 	-- HDD control
 	HDD_SECTOR     : out unsigned(15 downto 0);
 	HDD_READ       : out std_logic;
@@ -86,7 +110,8 @@ port (
 	UART_RTS       :out  std_logic;
 	UART_CTS       :in  std_logic;
 	UART_DTR       :out  std_logic;
-	UART_DSR       :in  std_logic
+	UART_DSR       :in  std_logic;
+	RTC            :in  std_logic_vector(64 downto 0)
 
 );
 end apple2_top;
@@ -149,7 +174,6 @@ architecture arch of apple2_top is
   signal power_on_reset : std_logic := '1';
   signal reset : std_logic;
 
-  signal D1_ACTIVE, D2_ACTIVE : std_logic;
 
   signal a_ram: unsigned(17 downto 0);
   
@@ -302,6 +326,32 @@ begin
     closed_apple => closed_apple
     );
 
+	 
+
+--  disk : entity work.disk_ii port map (
+--    CLK_14M        => CLK_14M,
+--    CLK_2M         => CLK_2M,
+--    PHASE_ZERO     => PHASE_ZERO,
+--    IO_SELECT      => IO_SELECT(6),
+--    DEVICE_SELECT  => DEVICE_SELECT(6),
+--    RESET          => reset,
+--    A              => ADDR,
+--    D_IN           => D,
+--    D_OUT          => DISK_DO,
+--    TRACK          => TRACK,
+--    TRACK_ADDR     => open,
+--    D1_ACTIVE      => D1_ACTIVE,
+--    D2_ACTIVE      => D2_ACTIVE,
+--    ram_write_addr => DISK_RAM_ADDR,
+--    ram_di         => DISK_RAM_DI,
+--    ram_we         => DISK_RAM_WE
+--    );
+--
+--  DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
+--  DISK_RAM_DO <= (others => '0');
+--  
+  DISK_ACT <= not (D1_ACTIVE or D2_ACTIVE);
+
   disk : entity work.disk_ii port map (
     CLK_14M        => CLK_14M,
     CLK_2M         => CLK_2M,
@@ -309,21 +359,27 @@ begin
     IO_SELECT      => IO_SELECT(6),
     DEVICE_SELECT  => DEVICE_SELECT(6),
     RESET          => reset,
+    DISK_READY     => DISK_READY,  -- TODO
     A              => ADDR,
     D_IN           => D,
     D_OUT          => DISK_DO,
-    TRACK          => TRACK,
-    TRACK_ADDR     => open,
-    D1_ACTIVE      => D1_ACTIVE,
+    D1_ACTIVE      => D1_ACTIVE, 
     D2_ACTIVE      => D2_ACTIVE,
-    ram_write_addr => DISK_RAM_ADDR,
-    ram_di         => DISK_RAM_DI,
-    ram_we         => DISK_RAM_WE
+    -- track buffer interface for disk 1  -- TODO
+    TRACK1         => TRACK1,
+    TRACK1_ADDR    => TRACK1_ADDR,
+    TRACK1_DO      => TRACK1_DO,
+    TRACK1_DI      => TRACK1_DI,
+    TRACK1_WE      => TRACK1_WE,
+    TRACK1_BUSY    => TRACK1_BUSY,
+    -- track buffer interface for disk 2  -- TODO
+    TRACK2         => TRACK2,
+    TRACK2_ADDR    => TRACK2_ADDR,
+    TRACK2_DO      => TRACK2_DO,
+    TRACK2_DI      => TRACK2_DI,
+    TRACK2_WE      => TRACK2_WE,
+    TRACK2_BUSY    => TRACK2_BUSY
     );
-
-  DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
-  DISK_RAM_DO <= (others => '0');
-
   hdd : entity work.hdd port map (
     CLK_14M        => CLK_14M,
     IO_SELECT      => IO_SELECT(7),
