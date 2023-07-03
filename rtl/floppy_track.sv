@@ -131,6 +131,24 @@ always @(posedge clk) begin
 		end
 end
 
+
+dpram #(13,8) floppy_dpram
+(
+        .clock_a(clk),
+        .address_a({rel_lba, sd_buff_addr}),
+        .wren_a(sd_buff_wr & sd_ack),
+        .data_a(sd_buff_dout),
+        .q_a(sd_buff_din),
+
+        .clock_b(clk),
+        .address_b(ram_addr),
+        .wren_b(ram_we),
+        .data_b(ram_di),
+        .q_b(ram_do)
+
+);
+
+/*
 // Dual port track buffer
 reg   [7:0] track_ram[13*512];
 
@@ -145,5 +163,5 @@ always @(posedge clk) begin
 	ram_do <= track_ram[ram_addr];
 	if (ram_we) track_ram[ram_addr] <= ram_di;
 end
-
+*/
 endmodule

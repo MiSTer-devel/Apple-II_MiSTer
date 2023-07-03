@@ -398,11 +398,15 @@ apple2_top apple2_top
     .TRACK2_WE (TRACK2_RAM_WE),
     .TRACK2_BUSY (TRACK2_RAM_BUSY),
 	
+	
+	.DISK_READY(DISK_READY),
+	.D1_ACTIVE(D1_ACTIVE),
+	.D2_ACTIVE(D2_ACTIVE),
 	//.TRACK(track),
 	//.DISK_RAM_ADDR({track_sec, sd_buff_addr}),
-	.DISK_RAM_DI(sd_buff_dout),
+	//.DISK_RAM_DI(sd_buff_dout),
 	//.DISK_RAM_DO(sd_buff_din[0]),
-	.DISK_RAM_WE(sd_buff_wr & sd_ack[0]),
+	//.DISK_RAM_WE(sd_buff_wr & sd_ack[0]),
 
 	.HDD_SECTOR(sd_lba[1]),
 	.HDD_READ(hdd_read),
@@ -530,7 +534,13 @@ end
 
 always @(posedge clk_sys) begin
 	if (img_mounted[0]) begin
-		disk_mount <= img_size != 0;
+		disk_mount[0] <= img_size != 0;
+		//disk_protect <= img_readonly;
+	end
+end
+always @(posedge clk_sys) begin
+	if (img_mounted[2]) begin
+		disk_mount[1] <= img_size != 0;
 		//disk_protect <= img_readonly;
 	end
 end
@@ -551,9 +561,9 @@ wire TRACK2_RAM_WE;
 wire [5:0] TRACK2;
 
 wire [1:0] DISK_READY;
-wire [1:0] DISK_CHANGE;
-wire [63:0] disk_size;
-wire disk_mount;
+//wire [1:0] DISK_CHANGE;
+reg [1:0]disk_mount;
+
 
 
 floppy_track floppy_track_1
@@ -568,21 +578,56 @@ floppy_track floppy_track_1
 	
 	.track (TRACK1),
 	.busy  (TRACK1_RAM_BUSY),
-   .change(DISK_CHANGE[0]),
-   .mount (disk_mount),
+//   .change(DISK_CHANGE[0]),
+//   .change(img_mounted[0]),
+   .change(disk_mount[0]),
+   .mount (disk_mount[0]),
    .ready  (DISK_READY[0]),
    .active (D1_ACTIVE),
 
    .sd_buff_addr (sd_buff_addr),
    .sd_buff_dout (sd_buff_dout),
-   .sd_buff_din  ( sd_buff_din[0]),
-   .sd_buff_wr   (sd_buff_wr & sd_ack[0]),
+   .sd_buff_din  (sd_buff_din[0]),
+   .sd_buff_wr   (sd_buff_wr),
 
    .sd_lba       (sd_lba[0] ),
    .sd_rd        (sd_rd[0]),
    .sd_wr       ( sd_wr[0]),
    .sd_ack       (sd_ack[0])	
 );
+
+
+floppy_track floppy_track_2
+(
+   .clk(clk_sys),
+	.reset(dd_reset),
+	
+	.ram_addr(TRACK2_RAM_ADDR),
+	.ram_di(TRACK2_RAM_DI),
+	.ram_do(TRACK2_RAM_DO),
+	.ram_we(TRACK2_RAM_WE),
+	
+	.track (TRACK2),
+	.busy  (TRACK2_RAM_BUSY),
+//   .change(DISK_CHANGE[0]),
+//   .change(img_mounted[2]),
+   .change(disk_mount[1]),
+   .mount (disk_mount[1]),
+   .ready  (DISK_READY[1]),
+   .active (D2_ACTIVE),
+
+   .sd_buff_addr (sd_buff_addr),
+   .sd_buff_dout (sd_buff_dout),
+   .sd_buff_din  (sd_buff_din[2]),
+   .sd_buff_wr   (sd_buff_wr),
+
+   .sd_lba       (sd_lba[2] ),
+   .sd_rd        (sd_rd[2]),
+   .sd_wr       ( sd_wr[2]),
+   .sd_ack       (sd_ack[2])	
+);
+
+
 
 /*
 	 
