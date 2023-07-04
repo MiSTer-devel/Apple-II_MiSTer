@@ -146,6 +146,22 @@ architecture arch of apple2_top is
 
 
   end component;
+  
+  component clock_card is
+    port (
+        CLK_14M         : in std_logic;
+        CLK_2M          : in std_logic;
+        PH_2            : in std_logic;
+        IO_SELECT_N     : in std_logic;
+        DEVICE_SELECT_N : in std_logic;
+        IO_STROBE_N     : in std_logic;
+        ADDRESS         : std_logic_vector(15 downto 0);
+        RW_N            : in std_logic;
+        RESET           : in std_logic;
+        DATA_IN         : in std_logic_vector(7 downto 0);
+        DATA_OUT        : out std_logic_vector(7 downto 0);
+        RTC             : in std_logic_vector(64 downto 0));
+  end component;
 
 
   signal CLK_2M, CLK_2M_D, PHASE_ZERO : std_logic;
@@ -162,6 +178,7 @@ architecture arch of apple2_top is
   signal SSC_ROM_EN : std_logic;
   signal SSC_DO     : unsigned(7 downto 0);
 
+  signal CLOCK_DO     : unsigned(7 downto 0);
 
   signal we_ram : std_logic;
   signal VIDEO, HBL, VBL : std_logic;
@@ -263,6 +280,7 @@ begin
   ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
 
   PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
+        CLOCK_DO when IO_SELECT(1) = '1' or DEVICE_SELECT(1) = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
@@ -331,29 +349,6 @@ begin
     );
 
 	 
-
---  disk : entity work.disk_ii port map (
---    CLK_14M        => CLK_14M,
---    CLK_2M         => CLK_2M,
---    PHASE_ZERO     => PHASE_ZERO,
---    IO_SELECT      => IO_SELECT(6),
---    DEVICE_SELECT  => DEVICE_SELECT(6),
---    RESET          => reset,
---    A              => ADDR,
---    D_IN           => D,
---    D_OUT          => DISK_DO,
---    TRACK          => TRACK,
---    TRACK_ADDR     => open,
---    D1_ACTIVE      => D1_ACTIVE,
---    D2_ACTIVE      => D2_ACTIVE,
---    ram_write_addr => DISK_RAM_ADDR,
---    ram_di         => DISK_RAM_DI,
---    ram_we         => DISK_RAM_WE
---    );
---
---  DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
---  DISK_RAM_DO <= (others => '0');
---  
   DISK_ACT <= not (D1_ACTIVE or D2_ACTIVE);
 
   disk : entity work.disk_ii port map (
@@ -384,6 +379,7 @@ begin
     TRACK2_WE      => TRACK2_WE,
     TRACK2_BUSY    => TRACK2_BUSY
     );
+	 
   hdd : entity work.hdd port map (
     CLK_14M        => CLK_14M,
     IO_SELECT      => IO_SELECT(7),
@@ -445,6 +441,23 @@ begin
 	UART_DSR 	=> UART_DSR,
 	IRQ_N 		=> ssc_irq_n
 	);
+
+	clock : component clock_card
+  port map (
+	  CLK_14M         => CLK_14M,
+	  CLK_2M          => CLK_2M,
+	  PH_2            => PHASE_ZERO,
+	  IO_SELECT_N     => not IO_SELECT(1),
+	  DEVICE_SELECT_N => not DEVICE_SELECT(1),
+	  IO_STROBE_N     => NOT IO_STROBE,
+	  ADDRESS         => std_logic_vector(ADDR),
+	  RW_N            => not cpu_we,
+	  RESET           => reset,
+	  DATA_IN         => std_logic_vector(D),
+	  unsigned(DATA_OUT) => CLOCK_DO,
+	  RTC             => RTC
+	  );
+
 
 
   audio(6 downto 0) <= (others => '0');
