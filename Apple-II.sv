@@ -535,12 +535,14 @@ end
 always @(posedge clk_sys) begin
 	if (img_mounted[0]) begin
 		disk_mount[0] <= img_size != 0;
+		DISK_CHANGE[0] <= ~DISK_CHANGE[0];
 		//disk_protect <= img_readonly;
 	end
 end
 always @(posedge clk_sys) begin
 	if (img_mounted[2]) begin
 		disk_mount[1] <= img_size != 0;
+		DISK_CHANGE[1] <= ~DISK_CHANGE[1];
 		//disk_protect <= img_readonly;
 	end
 end
@@ -561,7 +563,7 @@ wire TRACK2_RAM_WE;
 wire [5:0] TRACK2;
 
 wire [1:0] DISK_READY;
-//wire [1:0] DISK_CHANGE;
+reg [1:0] DISK_CHANGE;
 reg [1:0]disk_mount;
 
 
@@ -578,9 +580,9 @@ floppy_track floppy_track_1
 	
 	.track (TRACK1),
 	.busy  (TRACK1_RAM_BUSY),
-//   .change(DISK_CHANGE[0]),
+   .change(DISK_CHANGE[0]),
 //   .change(img_mounted[0]),
-   .change(disk_mount[0]),
+//   .change(disk_mount[0]),
    .mount (disk_mount[0]),
    .ready  (DISK_READY[0]),
    .active (D1_ACTIVE),
@@ -609,9 +611,9 @@ floppy_track floppy_track_2
 	
 	.track (TRACK2),
 	.busy  (TRACK2_RAM_BUSY),
-//   .change(DISK_CHANGE[0]),
+   .change(DISK_CHANGE[1]),
 //   .change(img_mounted[2]),
-   .change(disk_mount[1]),
+//   .change(disk_mount[1]),
    .mount (disk_mount[1]),
    .ready  (DISK_READY[1]),
    .active (D2_ACTIVE),
