@@ -382,31 +382,25 @@ apple2_top apple2_top
 	.joy_an(joya),
 
 	.mb_enabled(~status[4]),
+	
+	.TRACK1(TRACK1),
+	.TRACK1_ADDR(TRACK1_RAM_ADDR),
+	.TRACK1_DI(TRACK1_RAM_DI),
+	.TRACK1_DO (TRACK1_RAM_DO),
+	.TRACK1_WE (TRACK1_RAM_WE),
+	.TRACK1_BUSY (TRACK1_RAM_BUSY),
+	//-- Track buffer interface disk 2
+	.TRACK2(TRACK2),
+	.TRACK2_ADDR(TRACK2_RAM_ADDR),
+	.TRACK2_DI(TRACK2_RAM_DI),
+	.TRACK2_DO (TRACK2_RAM_DO),
+	.TRACK2_WE (TRACK2_RAM_WE),
+	.TRACK2_BUSY (TRACK2_RAM_BUSY),
 
-	
-	 .TRACK1(TRACK1),
-    .TRACK1_ADDR(TRACK1_RAM_ADDR),
-    .TRACK1_DI(TRACK1_RAM_DI),
-    .TRACK1_DO (TRACK1_RAM_DO),
-    .TRACK1_WE (TRACK1_RAM_WE),
-    .TRACK1_BUSY (TRACK1_RAM_BUSY),
-    //-- Track buffer interface disk 2
-	 .TRACK2(TRACK2),
-    .TRACK2_ADDR(TRACK2_RAM_ADDR),
-    .TRACK2_DI(TRACK2_RAM_DI),
-    .TRACK2_DO (TRACK2_RAM_DO),
-    .TRACK2_WE (TRACK2_RAM_WE),
-    .TRACK2_BUSY (TRACK2_RAM_BUSY),
-	
-	
 	.DISK_READY(DISK_READY),
 	.D1_ACTIVE(D1_ACTIVE),
 	.D2_ACTIVE(D2_ACTIVE),
-	//.TRACK(track),
-	//.DISK_RAM_ADDR({track_sec, sd_buff_addr}),
-	//.DISK_RAM_DI(sd_buff_dout),
-	//.DISK_RAM_DO(sd_buff_din[0]),
-	//.DISK_RAM_WE(sd_buff_wr & sd_ack[0]),
+	.DISK_ACT(led),
 
 	.HDD_SECTOR(sd_lba[1]),
 	.HDD_READ(hdd_read),
@@ -424,7 +418,6 @@ apple2_top apple2_top
 	.ram_we(ram_we),
 	.ram_aux(ram_aux),
 
-	.DISK_ACT(led),
 
 	.UART_TXD(UART_TXD),
 	.UART_RXD(UART_RXD),
@@ -581,8 +574,6 @@ floppy_track floppy_track_1
 	.track (TRACK1),
 	.busy  (TRACK1_RAM_BUSY),
    .change(DISK_CHANGE[0]),
-//   .change(img_mounted[0]),
-//   .change(disk_mount[0]),
    .mount (disk_mount[0]),
    .ready  (DISK_READY[0]),
    .active (D1_ACTIVE),
@@ -612,8 +603,6 @@ floppy_track floppy_track_2
 	.track (TRACK2),
 	.busy  (TRACK2_RAM_BUSY),
    .change(DISK_CHANGE[1]),
-//   .change(img_mounted[2]),
-//   .change(disk_mount[1]),
    .mount (disk_mount[1]),
    .ready  (DISK_READY[1]),
    .active (D2_ACTIVE),
@@ -630,119 +619,6 @@ floppy_track floppy_track_2
 );
 
 
-
-/*
-	 
-
-  disk_mount <= '0' when disk_size = x"0000000000000000" else '1';
-  sd_lba <= SD_LBA2 when sd_rd(1) = '1' or sd_wr(1) = '1' else SD_LBA1;
-  sd_data_in <= SD_DATA_IN2 when sd_ack(1) = '1' else SD_DATA_IN1;
-  
-  sdcard_interface1: mist_sd_card port map (
-    clk          => CLK_14M,
-    reset        => reset,
-
-    ram_addr     => TRACK1_RAM_ADDR, -- in unsigned(12 downto 0);
-    ram_di       => TRACK1_RAM_DI,   -- in unsigned(7 downto 0);
-    ram_do       => TRACK1_RAM_DO,   -- out unsigned(7 downto 0);
-    ram_we       => TRACK1_RAM_WE,
-
-    track        => std_logic_vector(TRACK1),
-    busy         => TRACK1_RAM_BUSY,
-    change       => DISK_CHANGE(0),
-    mount        => disk_mount,
-    ready        => DISK_READY(0),
-    active       => D1_ACTIVE,
-
-    sd_buff_addr => sd_buff_addr,
-    sd_buff_dout => sd_data_out,
-    sd_buff_din  => SD_DATA_IN1,
-    sd_buff_wr   => sd_data_out_strobe,
-
-    sd_lba       => SD_LBA1,
-    sd_rd        => sd_rd(0),
-    sd_wr        => sd_wr(0),
-    sd_ack       => sd_ack(0)
-  );
-
-  sdcard_interface2: mist_sd_card port map (
-    clk          => CLK_14M,
-    reset        => reset,
-
-    ram_addr     => TRACK2_RAM_ADDR, -- in unsigned(12 downto 0);
-    ram_di       => TRACK2_RAM_DI,   -- in unsigned(7 downto 0);
-    ram_do       => TRACK2_RAM_DO,   -- out unsigned(7 downto 0);
-    ram_we       => TRACK2_RAM_WE,
-
-    track        => std_logic_vector(TRACK2),
-    busy         => TRACK2_RAM_BUSY,
-    change       => DISK_CHANGE(1),
-    mount        => disk_mount,
-    ready        => DISK_READY(1),
-    active       => D2_ACTIVE,
-
-    sd_buff_addr => sd_buff_addr,
-    sd_buff_dout => sd_data_out,
-    sd_buff_din  => SD_DATA_IN2,
-    sd_buff_wr   => sd_data_out_strobe,
-
-    sd_lba       => SD_LBA2,
-    sd_rd        => sd_rd(1),
-    sd_wr        => sd_wr(1),
-    sd_ack       => sd_ack(1)
-  );
-	 
-*/
-
-
-
-/*
-assign      sd_lba[0] = lba_fdd;
-wire  [5:0] track;
-reg   [3:0] track_sec;
-reg         cpu_wait_fdd = 0;
-reg  [31:0] lba_fdd;
-
-always @(posedge clk_sys) begin
-	reg       state = 0;
-	reg [5:0] cur_track;
-	reg       fdd_mounted = 0;
-	reg       old_ack = 0;
-	
-	old_ack <= sd_ack[0];
-	fdd_mounted <= fdd_mounted | img_mounted[0];
-	sd_wr[0] <= 0;
-
-	if(dd_reset) begin
-		state <= 0;
-		cpu_wait_fdd <= 0;
-		sd_rd[0] <= 0;
-	end
-	else if(!state) begin
-		if((cur_track != track) || (fdd_mounted && ~img_mounted[0])) begin
-			cur_track <= track;
-			fdd_mounted <= 0;
-			if(img_size) begin
-				track_sec <= 0;
-				lba_fdd <= 13 * track;
-				state <= 1;
-				sd_rd[0] <= 1;
-				cpu_wait_fdd <= 1;
-			end
-		end
-	end
-	else begin
-		if(~old_ack & sd_ack[0]) begin
-			if(track_sec >= 12) sd_rd[0] <= 0;
-			lba_fdd <= lba_fdd + 1'd1;
-		end else if(old_ack & ~sd_ack[0]) begin
-			track_sec <= track_sec + 1'd1;
-			if(~sd_rd[0]) state <= 0;
-			cpu_wait_fdd <= 0;
-		end
-	end
-end
-*/
 wire tape_adc, tape_adc_act;
 ltc2308_tape ltc2308_tape
 (

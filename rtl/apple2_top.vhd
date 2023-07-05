@@ -58,14 +58,9 @@ port (
 	-- mocking board
 	mb_enabled 		: in std_logic;
 
-	-- disk control
-	--TRACK 			: out unsigned(5 downto 0);
-	--DISK_RAM_ADDR  : in  unsigned(12 downto 0);
-	--DISK_RAM_DI 	: in  unsigned(7 downto 0);
-	--DISK_RAM_DO    : out unsigned(7 downto 0);
-	--DISK_RAM_WE 	: in  std_logic;
-	DISK_ACT       : out std_logic;
-   -- new disk control
+
+
+    -- disk control
     TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
     TRACK1_ADDR    : out unsigned(12 downto 0);
     TRACK1_DI      : out unsigned( 7 downto 0);
@@ -80,19 +75,14 @@ port (
     TRACK2_WE      : out std_logic;
     TRACK2_BUSY    : in  std_logic;
 	 
-	 -- why are these buffers??
-	 
     D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
     D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
-    --D1_ACTIVE      : out std_logic;             -- Disk 1 motor on
-    --D2_ACTIVE      : out std_logic;             -- Disk 2 motor on
+
+    DISK_ACT       : out std_logic;
 
     DISK_READY     : in  std_logic_vector(1 downto 0);
 
-  --signal disk_change : std_logic_vector(1 downto 0);
-  --signal disk_size : std_logic_vector(63 downto 0);
-  --signal disk_mount : std_logic;
-	 
+
 	 
 	-- HDD control
 	HDD_SECTOR     : out unsigned(15 downto 0);
