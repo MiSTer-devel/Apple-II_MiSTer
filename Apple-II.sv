@@ -218,6 +218,7 @@ parameter CONF_STR = {
 	"O5,CPU,6502,65C02;",
 	"O4,Mocking board,Yes,No;",
 	"O78,Stereo mix,none,25%,50%,100%;",
+	"OM,PAL Mode,NTSC,PAL;",
 	"-;",
 	"O6,Analog X/Y,Normal,Swapped;",
 	"OHI,Paddle as analog,No,X,Y;",
@@ -371,6 +372,7 @@ apple2_top apple2_top
 	.b(B),
 	.SCREEN_MODE(screen_mode),
 	.TEXT_COLOR(text_color),
+	.PALMODE(status[22]),
 
 	.AUDIO_L(audio_l),
 	.AUDIO_R(audio_r),

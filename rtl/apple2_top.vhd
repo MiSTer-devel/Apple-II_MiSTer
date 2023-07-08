@@ -50,6 +50,7 @@ port (
 	SCREEN_MODE    : in  std_logic_vector(1 downto 0); -- 00: Color, 01: B&W, 10:Green, 11: Amber
 	TEXT_COLOR     : in  std_logic; -- 1 = color processing for
 	                                -- text lines in mixed modes
+   PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
 
 	PS2_Key        : in  std_logic_vector(10 downto 0);
 	joy            : in  std_logic_vector(5 downto 0);
@@ -154,7 +155,7 @@ architecture arch of apple2_top is
   end component;
 
 
-  signal CLK_2M, CLK_2M_D, PHASE_ZERO : std_logic;
+  signal CLK_2M, CLK_2M_D, PHASE_ZERO, PHASE_ZERO_R, PHASE_ZERO_F : std_logic;
   signal IO_SELECT, DEVICE_SELECT : std_logic_vector(7 downto 0);
   signal IO_STROBE : std_logic;
 
@@ -280,6 +281,8 @@ begin
     CLK_2M         => CLK_2M,
     CPU_WAIT       => CPU_WAIT,
     PHASE_ZERO     => PHASE_ZERO,
+    PHASE_ZERO_R   => PHASE_ZERO_R,
+    PHASE_ZERO_F   => PHASE_ZERO_F,
     FLASH_CLK      => flash_clk(22),
     reset          => reset,
     cpu            => cpu_type,
@@ -294,6 +297,7 @@ begin
     NMI_N          => psg_nmi_n,
     ram_we         => we_ram,
     VIDEO          => VIDEO,
+	 PALMODE        => PALMODE,
     COLOR_LINE     => COLOR_LINE,
     TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
@@ -394,6 +398,8 @@ begin
     port map (
       CLK_14M    => CLK_14M,
       PHASE_ZERO => PHASE_ZERO,
+      PHASE_ZERO_R => PHASE_ZERO_R,
+      PHASE_ZERO_F => PHASE_ZERO_F,
       I_RESET_L => not reset,
       I_ENA_H   => mb_enabled,
 
