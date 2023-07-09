@@ -24,6 +24,7 @@ entity video_generator is
     CLK_14M    : in std_logic;              -- 14.31818 MHz master clock
     CLK_7M     : in std_logic;
     ALTCHAR    : in std_logic;
+	 ROMSWITCH  : in std_logic;
 	GR2        : in std_logic;
     SEGA       : in std_logic;
     SEGB       : in std_logic;
@@ -60,9 +61,9 @@ begin
                     DL(5 downto 0) & SEGC & SEGB & SEGA;
 
   videorom : work.spram
-  generic map (12,8,"rtl/roms/video.mif")
+  generic map (13,8,"rtl/roms/video2.mif")
   port map (
-   address => std_logic_vector(video_rom_addr),
+   address => std_logic_vector(ROMSWITCH & video_rom_addr),
    clock => CLK_14M,
    data => (others=>'0'),
    wren => '0',

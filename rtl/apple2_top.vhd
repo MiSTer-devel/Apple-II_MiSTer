@@ -29,6 +29,7 @@ port (
 
 	reset_cold     : in std_logic;
 	reset_warm     : in std_logic;
+	soft_reset     : buffer std_logic;
 	cpu_type       : in std_logic;
 	CPU_WAIT       : in std_logic;
 
@@ -51,6 +52,7 @@ port (
 	TEXT_COLOR     : in  std_logic; -- 1 = color processing for
 	                                -- text lines in mixed modes
    PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
+   ROMSWITCH      : in std_logic;
 
 	PS2_Key        : in  std_logic_vector(10 downto 0);
 	joy            : in  std_logic_vector(5 downto 0);
@@ -198,7 +200,6 @@ architecture arch of apple2_top is
   signal pdl_strobe : std_logic;
   signal open_apple : std_logic;
   signal closed_apple : std_logic;
-
 begin
 
 
@@ -206,7 +207,7 @@ begin
   power_on : process(CLK_14M)
   begin
     if rising_edge(CLK_14M) then
-      reset <= reset_warm or power_on_reset;
+      reset <= reset_warm or power_on_reset or  soft_reset;
 
       if reset_cold = '1' then
         power_on_reset <= '1';
@@ -298,6 +299,7 @@ begin
     ram_we         => we_ram,
     VIDEO          => VIDEO,
 	 PALMODE        => PALMODE,
+	 ROMSWITCH      => ROMSWITCH,
     COLOR_LINE     => COLOR_LINE,
     TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
@@ -339,7 +341,8 @@ begin
     K        => K,
     akd      => akd,
     open_apple => open_apple,
-    closed_apple => closed_apple
+    closed_apple => closed_apple,
+    soft_reset => soft_reset
     );
 
 	 

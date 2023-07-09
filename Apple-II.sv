@@ -215,10 +215,11 @@ parameter CONF_STR = {
 	"OEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"OG,Pixel Clock,Double,Normal;",
 	"-;",
-	"O5,CPU,6502,65C02;",
+	"O5,CPU,65C02,6502;",
 	"O4,Mocking board,Yes,No;",
 	"O78,Stereo mix,none,25%,50%,100%;",
 	"OM,PAL Mode,NTSC,PAL;",
+	"ON,Video Rom,US,LOCAL;",
 	"-;",
 	"O6,Analog X/Y,Normal,Swapped;",
 	"OHI,Paddle as analog,No,X,Y;",
@@ -266,6 +267,8 @@ wire        img_readonly;
 
 wire [63:0] img_size;
 wire [64:0] RTC;
+
+wire soft_reset;
 
 hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 (
@@ -358,10 +361,11 @@ apple2_top apple2_top
 	.CLK_50M(CLK_50M),
 
 	.CPU_WAIT(cpu_wait_hdd /*| cpu_wait_fdd*/),
-	.cpu_type(status[5]),
+	.cpu_type(~status[5]),
 
 	.reset_cold(RESET | status[0]),
 	.reset_warm(buttons[1]),
+	.soft_reset(soft_reset),
 
 	.hblank(HBlank),
 	.vblank(VBlank),
@@ -373,6 +377,7 @@ apple2_top apple2_top
 	.SCREEN_MODE(screen_mode),
 	.TEXT_COLOR(text_color),
 	.PALMODE(status[22]),
+	.ROMSWITCH(~status[23]),
 
 	.AUDIO_L(audio_l),
 	.AUDIO_R(audio_r),
@@ -473,7 +478,7 @@ always @(posedge clk_sys) begin
 	end
 end
 
-wire dd_reset = RESET | status[0] | buttons[1];
+wire dd_reset = RESET | status[0] | buttons[1] | soft_reset;
 
 reg  hdd_mounted = 0;
 wire hdd_read;

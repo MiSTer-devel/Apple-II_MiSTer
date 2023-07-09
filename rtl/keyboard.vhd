@@ -24,7 +24,8 @@ entity keyboard is
     akd      : buffer std_logic;        -- Any key down
     K        : out unsigned(7 downto 0); -- Latched, decoded keyboard data
     open_apple:out std_logic;
-    closed_apple:out std_logic
+    closed_apple:out std_logic;
+    soft_reset:out std_logic
     );
 end keyboard;
 
@@ -39,7 +40,8 @@ architecture rtl of keyboard is
   signal key_pressed        : std_logic;  -- Key pressed & not read
   signal ctrl,shift,caplock : std_logic;
   signal old_stb            : std_logic;
-
+  signal reset_counter      : unsigned(6 downto 0) := "0000000";
+  signal reset_key          : std_logic;
   signal rep_timer          : unsigned(22 downto 0);
 
   -- Special PS/2 keyboard codes
@@ -49,6 +51,7 @@ architecture rtl of keyboard is
   constant CAPS_LOCK        : unsigned(7 downto 0) := X"58";
   constant WINDOWS          : unsigned(7 downto 0) := X"1F";
   constant ALT              : unsigned(7 downto 0) := X"11";
+  constant F2               : unsigned(7 downto 0) := X"06";
 
   type states is (IDLE,
                   HAVE_CODE,
@@ -64,6 +67,20 @@ architecture rtl of keyboard is
   signal state, next_state : states;
 
 begin
+
+
+  soft_reset <= reset_counter(6) or reset_counter(5) or reset_counter(4) or reset_counter(3) or reset_counter(2) or reset_counter(1) or reset_counter(0);
+  
+  reset_ctrl : process (CLK_14M)
+  begin
+    if rising_edge(CLK_14M) then
+    if (reset_key = '1') then
+	    reset_counter <= "1111111";
+	 elsif reset_counter > 0 then
+	    reset_counter <= reset_counter -1;
+	 end if;
+	 end if;
+  end process;
 
   keyboard_rom : work.spram
   generic map (11,8,"rtl/roms/keyboard.mif")
@@ -87,15 +104,16 @@ begin
     end if;
   end process;
 
-  shift_ctrl : process (CLK_14M, reset)
+  shift_ctrl : process (CLK_14M, reset, reset_counter)
   begin
     if reset = '1' then
       shift <= '0';
       ctrl <= '0';
       open_apple<='0';
       closed_apple<='0';
+		reset_key<='0';
     elsif rising_edge(CLK_14M) then
-      if state = HAVE_CODE then
+     if state = HAVE_CODE then
         if code = LEFT_SHIFT or code = RIGHT_SHIFT then
           shift <= '1';
         elsif code = LEFT_CTRL then
@@ -104,6 +122,8 @@ begin
           open_apple <= '1';
         elsif code = ALT then
           closed_apple <= '1';
+        elsif code = F2 then
+          reset_key <= '1';
         end if;
       elsif state = KEY_UP then
         if code = LEFT_SHIFT or code = RIGHT_SHIFT then
@@ -114,6 +134,8 @@ begin
           open_apple <= '0';
         elsif code = ALT then
           closed_apple <= '0';
+        elsif code = F2 then
+          reset_key <= '0';
         end if;
       end if;
     end if;
@@ -172,7 +194,7 @@ begin
       when DECODE =>
         if ps2_key(9) = '0' then
           next_state <= GOT_KEY_UP_CODE;
-        elsif code = LEFT_SHIFT or code = RIGHT_SHIFT or code = LEFT_CTRL or code = CAPS_LOCK then
+        elsif code = LEFT_SHIFT or code = RIGHT_SHIFT or code = LEFT_CTRL or code = CAPS_LOCK or code = F2 then
           next_state <= IDLE;
         else
           next_state <= NORMAL_KEY;

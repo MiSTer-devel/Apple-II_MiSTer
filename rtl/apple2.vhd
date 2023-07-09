@@ -17,6 +17,7 @@ entity apple2 is
     CLK_14M        : in  std_logic;              -- 14.31818 MHz master clock
     CLK_2M         : out std_logic;
     PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
+ 	 ROMSWITCH      : in std_logic;
     CPU_WAIT       : in  std_logic;
     PHASE_ZERO     : buffer std_logic;
     PHASE_ZERO_R   : buffer std_logic;           -- next clock is PHI0=1
@@ -468,6 +469,7 @@ begin
     SEGB       => SEGB,
     SEGC       => SEGC,
     ALTCHAR    => ALTCHAR,
+    ROMSWITCH  => ROMSWITCH,
     WNDW_N     => WNDW_N,
     DL         => VIDEO_DL,
     LDPS_N     => LDPS_N,
