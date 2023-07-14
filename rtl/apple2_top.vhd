@@ -207,9 +207,9 @@ begin
   power_on : process(CLK_14M)
   begin
     if rising_edge(CLK_14M) then
-      reset <= reset_warm or power_on_reset or  soft_reset;
+      reset <= reset_warm or power_on_reset;
 
-      if reset_cold = '1' then
+      if reset_cold = '1' or soft_reset ='1'then
         power_on_reset <= '1';
         flash_clk <= (others=>'0');
       else
