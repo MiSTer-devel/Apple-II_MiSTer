@@ -336,7 +336,9 @@ begin
   keyboard : entity work.keyboard port map (
     PS2_Key  => PS2_Key,
     CLK_14M  => CLK_14M,
-    reset    => reset,
+	 reset    => reset_cold, -- use reset_cold, not reset so we keep the
+	                         -- keyboard state machine running for key up 
+									 -- events during / after reset
     reads    => read_key,
     K        => K,
     akd      => akd,

@@ -181,7 +181,7 @@ begin
       when DECODE =>
         if ps2_key(9) = '0' then
           next_state <= GOT_KEY_UP_CODE;
-        elsif code = LEFT_SHIFT or code = RIGHT_SHIFT or code = LEFT_CTRL or code = CAPS_LOCK or code = F2 then
+        elsif code = LEFT_SHIFT or code = RIGHT_SHIFT or code = LEFT_CTRL or code = CAPS_LOCK then
           next_state <= IDLE;
         else
           next_state <= NORMAL_KEY;
