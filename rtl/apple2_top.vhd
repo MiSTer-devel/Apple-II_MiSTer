@@ -40,6 +40,13 @@ port (
 	ram_addr       : out std_logic_vector(17 downto 0);
 	ram_aux        : out std_logic;
 
+	-- load replacement rom files	
+	ioctl_addr    : in  std_logic_vector(24 downto 0);
+	ioctl_data    : in  std_logic_vector(7 downto 0);
+	ioctl_index   : in  std_logic_vector(7 downto 0);
+	ioctl_download: in  std_logic;
+	ioctl_wr      : in  std_logic;
+
 	-- video output
 	hsync          : out std_logic;
 	vsync          : out std_logic;
@@ -63,27 +70,27 @@ port (
 
 
 
-    -- disk control
-    TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
-    TRACK1_ADDR    : out unsigned(12 downto 0);
-    TRACK1_DI      : out unsigned( 7 downto 0);
-    TRACK1_DO      : in  unsigned( 7 downto 0);
-    TRACK1_WE      : out std_logic;
-    TRACK1_BUSY    : in  std_logic;
-    -- Track buffer interface disk 2
-    TRACK2         : out unsigned( 5 downto 0); -- Current track (0-34)
-    TRACK2_ADDR    : out unsigned(12 downto 0);
-    TRACK2_DI      : out unsigned( 7 downto 0);
-    TRACK2_DO      : in  unsigned( 7 downto 0);
-    TRACK2_WE      : out std_logic;
-    TRACK2_BUSY    : in  std_logic;
+	-- disk control
+	TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
+	TRACK1_ADDR    : out unsigned(12 downto 0);
+	TRACK1_DI      : out unsigned( 7 downto 0);
+	TRACK1_DO      : in  unsigned( 7 downto 0);
+	TRACK1_WE      : out std_logic;
+	TRACK1_BUSY    : in  std_logic;
+	-- Track buffer interface disk 2
+	TRACK2         : out unsigned( 5 downto 0); -- Current track (0-34)
+	TRACK2_ADDR    : out unsigned(12 downto 0);
+	TRACK2_DI      : out unsigned( 7 downto 0);
+	TRACK2_DO      : in  unsigned( 7 downto 0);
+	TRACK2_WE      : out std_logic;
+	TRACK2_BUSY    : in  std_logic;
 	 
-    D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
-    D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
+	D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
+	D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
 
-    DISK_ACT       : out std_logic;
+	DISK_ACT       : out std_logic;
 
-    DISK_READY     : in  std_logic_vector(1 downto 0);
+	DISK_READY     : in  std_logic_vector(1 downto 0);
 
 
 	 
@@ -298,8 +305,8 @@ begin
     NMI_N          => psg_nmi_n,
     ram_we         => we_ram,
     VIDEO          => VIDEO,
-	 PALMODE        => PALMODE,
-	 ROMSWITCH      => ROMSWITCH,
+    PALMODE        => PALMODE,
+    ROMSWITCH      => ROMSWITCH,
     COLOR_LINE     => COLOR_LINE,
     TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
@@ -314,6 +321,12 @@ begin
     DEVICE_SELECT  => DEVICE_SELECT,
     IO_STROBE      => IO_STROBE,
 
+    ioctl_addr     => ioctl_addr,
+    ioctl_data     => ioctl_data,
+    ioctl_index    => ioctl_index,
+    ioctl_download => ioctl_download,
+    ioctl_wr       => ioctl_wr,
+	 
     speaker        => audio(7)
     );
 

@@ -17,7 +17,7 @@ entity apple2 is
     CLK_14M        : in  std_logic;              -- 14.31818 MHz master clock
     CLK_2M         : out std_logic;
     PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
- 	 ROMSWITCH      : in std_logic;
+    ROMSWITCH      : in std_logic;
     CPU_WAIT       : in  std_logic;
     PHASE_ZERO     : buffer std_logic;
     PHASE_ZERO_R   : buffer std_logic;           -- next clock is PHI0=1
@@ -53,6 +53,12 @@ entity apple2 is
     IO_SELECT      : out std_logic_vector(7 downto 0);
     DEVICE_SELECT  : out std_logic_vector(7 downto 0);
     IO_STROBE      : out std_logic;
+	 -- load different video roms
+    ioctl_addr : in  std_logic_vector(24 downto 0);
+    ioctl_data : in  std_logic_vector(7 downto 0);
+    ioctl_index   : in  std_logic_vector(7 downto 0);
+    ioctl_download: in  std_logic;
+    ioctl_wr   : in  std_logic;
 
     speaker        : out std_logic              -- One-bit speaker output
     );
@@ -161,6 +167,8 @@ architecture rtl of apple2 is
   signal ram_card_write : std_logic;
   signal ram_card_sel : std_logic;
 
+  
+  signal video_rom_select : std_logic;
 begin
 
   CLK_2M <= Q3;
@@ -461,6 +469,8 @@ begin
     WNDW_N         => WNDW_N,
     LDPS_N         => LDPS_N);
 
+  video_rom_select <= '1' when ioctl_download='1' and ioctl_wr = '1' and ioctl_index = "00000001" else '0';
+	 
   video_display : entity work.video_generator port map (
     CLK_14M    => CLK_14M,
     CLK_7M     => CLK_7M,
@@ -474,6 +484,11 @@ begin
     DL         => VIDEO_DL,
     LDPS_N     => LDPS_N,
     FLASH_CLK  => FLASH_CLK,
+
+    ioctl_addr => ioctl_addr,
+    ioctl_data => ioctl_data,
+    ioctl_wr => video_rom_select,
+	 
     VIDEO      => VIDEO);
 
   we <= not T65_WE_N when cpu = '0' else not R65C02_WE_N;
