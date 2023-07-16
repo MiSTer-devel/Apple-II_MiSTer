@@ -29,6 +29,7 @@ port (
 
 	reset_cold     : in std_logic;
 	reset_warm     : in std_logic;
+	soft_reset     : buffer std_logic;
 	cpu_type       : in std_logic;
 	CPU_WAIT       : in std_logic;
 
@@ -38,6 +39,13 @@ port (
 	ram_do         : in  std_logic_vector(15 downto 0);
 	ram_addr       : out std_logic_vector(17 downto 0);
 	ram_aux        : out std_logic;
+
+	-- load replacement rom files	
+	ioctl_addr    : in  std_logic_vector(24 downto 0);
+	ioctl_data    : in  std_logic_vector(7 downto 0);
+	ioctl_index   : in  std_logic_vector(7 downto 0);
+	ioctl_download: in  std_logic;
+	ioctl_wr      : in  std_logic;
 
 	-- video output
 	hsync          : out std_logic;
@@ -50,6 +58,8 @@ port (
 	SCREEN_MODE    : in  std_logic_vector(1 downto 0); -- 00: Color, 01: B&W, 10:Green, 11: Amber
 	TEXT_COLOR     : in  std_logic; -- 1 = color processing for
 	                                -- text lines in mixed modes
+   PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
+   ROMSWITCH      : in std_logic;
 
 	PS2_Key        : in  std_logic_vector(10 downto 0);
 	joy            : in  std_logic_vector(5 downto 0);
@@ -60,27 +70,27 @@ port (
 
 
 
-    -- disk control
-    TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
-    TRACK1_ADDR    : out unsigned(12 downto 0);
-    TRACK1_DI      : out unsigned( 7 downto 0);
-    TRACK1_DO      : in  unsigned( 7 downto 0);
-    TRACK1_WE      : out std_logic;
-    TRACK1_BUSY    : in  std_logic;
-    -- Track buffer interface disk 2
-    TRACK2         : out unsigned( 5 downto 0); -- Current track (0-34)
-    TRACK2_ADDR    : out unsigned(12 downto 0);
-    TRACK2_DI      : out unsigned( 7 downto 0);
-    TRACK2_DO      : in  unsigned( 7 downto 0);
-    TRACK2_WE      : out std_logic;
-    TRACK2_BUSY    : in  std_logic;
+	-- disk control
+	TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
+	TRACK1_ADDR    : out unsigned(12 downto 0);
+	TRACK1_DI      : out unsigned( 7 downto 0);
+	TRACK1_DO      : in  unsigned( 7 downto 0);
+	TRACK1_WE      : out std_logic;
+	TRACK1_BUSY    : in  std_logic;
+	-- Track buffer interface disk 2
+	TRACK2         : out unsigned( 5 downto 0); -- Current track (0-34)
+	TRACK2_ADDR    : out unsigned(12 downto 0);
+	TRACK2_DI      : out unsigned( 7 downto 0);
+	TRACK2_DO      : in  unsigned( 7 downto 0);
+	TRACK2_WE      : out std_logic;
+	TRACK2_BUSY    : in  std_logic;
 	 
-    D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
-    D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
+	D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
+	D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
 
-    DISK_ACT       : out std_logic;
+	DISK_ACT       : out std_logic;
 
-    DISK_READY     : in  std_logic_vector(1 downto 0);
+	DISK_READY     : in  std_logic_vector(1 downto 0);
 
 
 	 
@@ -154,7 +164,7 @@ architecture arch of apple2_top is
   end component;
 
 
-  signal CLK_2M, CLK_2M_D, PHASE_ZERO : std_logic;
+  signal CLK_2M, CLK_2M_D, PHASE_ZERO, PHASE_ZERO_R, PHASE_ZERO_F : std_logic;
   signal IO_SELECT, DEVICE_SELECT : std_logic_vector(7 downto 0);
   signal IO_STROBE : std_logic;
 
@@ -197,7 +207,6 @@ architecture arch of apple2_top is
   signal pdl_strobe : std_logic;
   signal open_apple : std_logic;
   signal closed_apple : std_logic;
-
 begin
 
 
@@ -207,7 +216,7 @@ begin
     if rising_edge(CLK_14M) then
       reset <= reset_warm or power_on_reset;
 
-      if reset_cold = '1' then
+      if reset_cold = '1' or soft_reset ='1'then
         power_on_reset <= '1';
         flash_clk <= (others=>'0');
       else
@@ -280,6 +289,8 @@ begin
     CLK_2M         => CLK_2M,
     CPU_WAIT       => CPU_WAIT,
     PHASE_ZERO     => PHASE_ZERO,
+    PHASE_ZERO_R   => PHASE_ZERO_R,
+    PHASE_ZERO_F   => PHASE_ZERO_F,
     FLASH_CLK      => flash_clk(22),
     reset          => reset,
     cpu            => cpu_type,
@@ -294,6 +305,8 @@ begin
     NMI_N          => psg_nmi_n,
     ram_we         => we_ram,
     VIDEO          => VIDEO,
+    PALMODE        => PALMODE,
+    ROMSWITCH      => ROMSWITCH,
     COLOR_LINE     => COLOR_LINE,
     TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
@@ -308,6 +321,12 @@ begin
     DEVICE_SELECT  => DEVICE_SELECT,
     IO_STROBE      => IO_STROBE,
 
+    ioctl_addr     => ioctl_addr,
+    ioctl_data     => ioctl_data,
+    ioctl_index    => ioctl_index,
+    ioctl_download => ioctl_download,
+    ioctl_wr       => ioctl_wr,
+	 
     speaker        => audio(7)
     );
 
@@ -330,12 +349,15 @@ begin
   keyboard : entity work.keyboard port map (
     PS2_Key  => PS2_Key,
     CLK_14M  => CLK_14M,
-    reset    => reset,
+	 reset    => reset_cold, -- use reset_cold, not reset so we keep the
+	                         -- keyboard state machine running for key up 
+									 -- events during / after reset
     reads    => read_key,
     K        => K,
     akd      => akd,
     open_apple => open_apple,
-    closed_apple => closed_apple
+    closed_apple => closed_apple,
+    soft_reset => soft_reset
     );
 
 	 
@@ -394,6 +416,8 @@ begin
     port map (
       CLK_14M    => CLK_14M,
       PHASE_ZERO => PHASE_ZERO,
+      PHASE_ZERO_R => PHASE_ZERO_R,
+      PHASE_ZERO_F => PHASE_ZERO_F,
       I_RESET_L => not reset,
       I_ENA_H   => mb_enabled,
 

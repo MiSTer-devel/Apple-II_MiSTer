@@ -215,9 +215,12 @@ parameter CONF_STR = {
 	"OEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"OG,Pixel Clock,Double,Normal;",
 	"-;",
-	"O5,CPU,6502,65C02;",
+	"O5,CPU,65C02,6502;",
 	"O4,Mocking board,Yes,No;",
 	"O78,Stereo mix,none,25%,50%,100%;",
+	"OM,PAL Mode,NTSC,PAL;",
+	"ON,Video Rom,US,LOCAL;",
+	"F1,BIN,Load 8k Video ROM;", 
 	"-;",
 	"O6,Analog X/Y,Normal,Swapped;",
 	"OHI,Paddle as analog,No,X,Y;",
@@ -266,6 +269,15 @@ wire        img_readonly;
 wire [63:0] img_size;
 wire [64:0] RTC;
 
+wire        ioctl_download;
+wire  [7:0] ioctl_index;
+wire        ioctl_wr;
+wire [24:0] ioctl_addr;
+wire  [7:0] ioctl_data;
+
+
+wire soft_reset;
+
 hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 (
 	.clk_sys(clk_sys),
@@ -289,6 +301,11 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.img_size(img_size),
 
 	.ioctl_wait(0),
+	.ioctl_download(ioctl_download),
+	.ioctl_wr(ioctl_wr),
+	.ioctl_addr(ioctl_addr),
+	.ioctl_dout(ioctl_data),
+	.ioctl_index(ioctl_index),
 
 	.ps2_key(ps2_key),
 
@@ -357,10 +374,11 @@ apple2_top apple2_top
 	.CLK_50M(CLK_50M),
 
 	.CPU_WAIT(cpu_wait_hdd /*| cpu_wait_fdd*/),
-	.cpu_type(status[5]),
+	.cpu_type(~status[5]),
 
 	.reset_cold(RESET | status[0]),
 	.reset_warm(buttons[1]),
+	.soft_reset(soft_reset),
 
 	.hblank(HBlank),
 	.vblank(VBlank),
@@ -371,6 +389,8 @@ apple2_top apple2_top
 	.b(B),
 	.SCREEN_MODE(screen_mode),
 	.TEXT_COLOR(text_color),
+	.PALMODE(status[22]),
+	.ROMSWITCH(~status[23]),
 
 	.AUDIO_L(audio_l),
 	.AUDIO_R(audio_r),
@@ -417,6 +437,12 @@ apple2_top apple2_top
 	.ram_di(ram_din),
 	.ram_we(ram_we),
 	.ram_aux(ram_aux),
+	
+	.ioctl_addr(ioctl_addr),
+	.ioctl_data(ioctl_data),
+	.ioctl_download(ioctl_download),
+	.ioctl_index(ioctl_index),
+	.ioctl_wr(ioctl_wr),
 
 
 	.UART_TXD(UART_TXD),
@@ -471,7 +497,7 @@ always @(posedge clk_sys) begin
 	end
 end
 
-wire dd_reset = RESET | status[0] | buttons[1];
+wire dd_reset = RESET | status[0] | buttons[1] | soft_reset;
 
 reg  hdd_mounted = 0;
 wire hdd_read;
@@ -564,15 +590,15 @@ reg [1:0]disk_mount;
 floppy_track floppy_track_1
 (
    .clk(clk_sys),
-	.reset(dd_reset),
+   .reset(dd_reset),
 	
-	.ram_addr(TRACK1_RAM_ADDR),
-	.ram_di(TRACK1_RAM_DI),
-	.ram_do(TRACK1_RAM_DO),
-	.ram_we(TRACK1_RAM_WE),
+   .ram_addr(TRACK1_RAM_ADDR),
+   .ram_di(TRACK1_RAM_DI),
+   .ram_do(TRACK1_RAM_DO),
+   .ram_we(TRACK1_RAM_WE),
 	
-	.track (TRACK1),
-	.busy  (TRACK1_RAM_BUSY),
+   .track (TRACK1),
+   .busy  (TRACK1_RAM_BUSY),
    .change(DISK_CHANGE[0]),
    .mount (disk_mount[0]),
    .ready  (DISK_READY[0]),
@@ -593,15 +619,15 @@ floppy_track floppy_track_1
 floppy_track floppy_track_2
 (
    .clk(clk_sys),
-	.reset(dd_reset),
+   .reset(dd_reset),
 	
-	.ram_addr(TRACK2_RAM_ADDR),
-	.ram_di(TRACK2_RAM_DI),
-	.ram_do(TRACK2_RAM_DO),
-	.ram_we(TRACK2_RAM_WE),
+   .ram_addr(TRACK2_RAM_ADDR),
+   .ram_di(TRACK2_RAM_DI),
+   .ram_do(TRACK2_RAM_DO),
+   .ram_we(TRACK2_RAM_WE),
 	
-	.track (TRACK2),
-	.busy  (TRACK2_RAM_BUSY),
+   .track (TRACK2),
+   .busy  (TRACK2_RAM_BUSY),
    .change(DISK_CHANGE[1]),
    .mount (disk_mount[1]),
    .ready  (DISK_READY[1]),
