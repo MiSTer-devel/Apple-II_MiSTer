@@ -87,6 +87,9 @@ port (
 	 
 	D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
 	D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
+	
+	D1_WP          : in std_logic;
+	D2_WP          : in std_logic;
 
 	DISK_ACT       : out std_logic;
 
@@ -376,6 +379,9 @@ begin
     D_OUT          => DISK_DO,
     D1_ACTIVE      => D1_ACTIVE, 
     D2_ACTIVE      => D2_ACTIVE,
+    D1_WP          => D1_WP,
+    D2_WP          => D2_WP, 
+	 
     -- track buffer interface for disk 1  -- TODO
     TRACK1         => TRACK1,
     TRACK1_ADDR    => TRACK1_ADDR,

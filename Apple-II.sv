@@ -206,7 +206,9 @@ parameter CONF_STR = {
 	"Apple-II;UART19200:9600:4800:2400:1200:300;",
 	"-;",
 	"S0,NIBDSKDO PO ;",
+	"OO,Write Protect D1,OFF,ON;",
 	"S2,NIBDSKDO PO ;",
+	"OP,Write Protect D2,OFF,ON;",
 	"S1,HDV;",
 	"-;",
 	"OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -421,6 +423,9 @@ apple2_top apple2_top
 	.D1_ACTIVE(D1_ACTIVE),
 	.D2_ACTIVE(D2_ACTIVE),
 	.DISK_ACT(led),
+
+	.D1_WP(status[24]),
+	.D2_WP(status[25]),
 
 	.HDD_SECTOR(sd_lba[1]),
 	.HDD_READ(hdd_read),
