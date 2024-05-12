@@ -24,13 +24,20 @@ entity video_generator is
     CLK_14M    : in std_logic;              -- 14.31818 MHz master clock
     CLK_7M     : in std_logic;
     ALTCHAR    : in std_logic;
-	GR2        : in std_logic;
+    ROMSWITCH  : in std_logic;
+    GR2        : in std_logic;
     SEGA       : in std_logic;
     SEGB       : in std_logic;
     SEGC       : in std_logic;
     WNDW_N     : in std_logic;
     DL         : in unsigned(7 downto 0);  -- Data from RAM
     LDPS_N     : in std_logic;
+
+    -- load different video roms
+    ioctl_addr : in  std_logic_vector(24 downto 0);
+    ioctl_data : in  std_logic_vector(7 downto 0);
+    ioctl_wr   : in  std_logic;
+	 
     FLASH_CLK  : in std_logic;            -- Low-frequency flashing text clock
     VIDEO      : out std_logic
     );
@@ -44,6 +51,8 @@ architecture rtl of video_generator is
   signal video_rom_out : unsigned(7 downto 0);
   signal video_shiftreg : unsigned(7 downto 0);
 
+  
+  signal video_rom_input_addr: std_logic_vector(12 downto 0);
 begin
 
   -----------------------------------------------------------------------------
@@ -59,13 +68,15 @@ begin
                     (DL(6) and (ALTCHAR or GR2 or DL(7))) &
                     DL(5 downto 0) & SEGC & SEGB & SEGA;
 
+  video_rom_input_addr<=std_logic_vector(ROMSWITCH & video_rom_addr) when ioctl_wr ='0' else ioctl_addr(12 downto 0);
+
   videorom : work.spram
-  generic map (12,8,"rtl/roms/video.mif")
+  generic map (13,8,"rtl/roms/video2.mif")
   port map (
-   address => std_logic_vector(video_rom_addr),
+   address => video_rom_input_addr,
    clock => CLK_14M,
-   data => (others=>'0'),
-   wren => '0',
+   data => ioctl_data,
+   wren => ioctl_wr,	
    unsigned(q) => video_rom_out);
 
   LS166 : process (CLK_14M)

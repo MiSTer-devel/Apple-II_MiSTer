@@ -29,6 +29,7 @@ port (
 
 	reset_cold     : in std_logic;
 	reset_warm     : in std_logic;
+	soft_reset     : buffer std_logic;
 	cpu_type       : in std_logic;
 	CPU_WAIT       : in std_logic;
 
@@ -38,6 +39,13 @@ port (
 	ram_do         : in  std_logic_vector(15 downto 0);
 	ram_addr       : out std_logic_vector(17 downto 0);
 	ram_aux        : out std_logic;
+
+	-- load replacement rom files	
+	ioctl_addr    : in  std_logic_vector(24 downto 0);
+	ioctl_data    : in  std_logic_vector(7 downto 0);
+	ioctl_index   : in  std_logic_vector(7 downto 0);
+	ioctl_download: in  std_logic;
+	ioctl_wr      : in  std_logic;
 
 	-- video output
 	hsync          : out std_logic;
@@ -50,6 +58,8 @@ port (
 	SCREEN_MODE    : in  std_logic_vector(1 downto 0); -- 00: Color, 01: B&W, 10:Green, 11: Amber
 	TEXT_COLOR     : in  std_logic; -- 1 = color processing for
 	                                -- text lines in mixed modes
+   PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
+   ROMSWITCH      : in std_logic;
 
 	PS2_Key        : in  std_logic_vector(10 downto 0);
 	joy            : in  std_logic_vector(5 downto 0);
@@ -58,14 +68,32 @@ port (
 	-- mocking board
 	mb_enabled 		: in std_logic;
 
+
+
 	-- disk control
-	TRACK 			: out unsigned(5 downto 0);
-	DISK_RAM_ADDR  : in  unsigned(12 downto 0);
-	DISK_RAM_DI 	: in  unsigned(7 downto 0);
-	DISK_RAM_DO    : out unsigned(7 downto 0);
-	DISK_RAM_WE 	: in  std_logic;
+	TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
+	TRACK1_ADDR    : out unsigned(12 downto 0);
+	TRACK1_DI      : out unsigned( 7 downto 0);
+	TRACK1_DO      : in  unsigned( 7 downto 0);
+	TRACK1_WE      : out std_logic;
+	TRACK1_BUSY    : in  std_logic;
+	-- Track buffer interface disk 2
+	TRACK2         : out unsigned( 5 downto 0); -- Current track (0-34)
+	TRACK2_ADDR    : out unsigned(12 downto 0);
+	TRACK2_DI      : out unsigned( 7 downto 0);
+	TRACK2_DO      : in  unsigned( 7 downto 0);
+	TRACK2_WE      : out std_logic;
+	TRACK2_BUSY    : in  std_logic;
+	 
+	D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
+	D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
+
 	DISK_ACT       : out std_logic;
 
+	DISK_READY     : in  std_logic_vector(1 downto 0);
+
+
+	 
 	-- HDD control
 	HDD_SECTOR     : out unsigned(15 downto 0);
 	HDD_READ       : out std_logic;
@@ -86,7 +114,8 @@ port (
 	UART_RTS       :out  std_logic;
 	UART_CTS       :in  std_logic;
 	UART_DTR       :out  std_logic;
-	UART_DSR       :in  std_logic
+	UART_DSR       :in  std_logic;
+	RTC            :in  std_logic_vector(64 downto 0)
 
 );
 end apple2_top;
@@ -117,9 +146,25 @@ architecture arch of apple2_top is
 
 
   end component;
+  
+  component clock_card is
+    port (
+        CLK_14M         : in std_logic;
+        CLK_2M          : in std_logic;
+        PH_2            : in std_logic;
+        IO_SELECT_N     : in std_logic;
+        DEVICE_SELECT_N : in std_logic;
+        IO_STROBE_N     : in std_logic;
+        ADDRESS         : std_logic_vector(15 downto 0);
+        RW_N            : in std_logic;
+        RESET           : in std_logic;
+        DATA_IN         : in std_logic_vector(7 downto 0);
+        DATA_OUT        : out std_logic_vector(7 downto 0);
+        RTC             : in std_logic_vector(64 downto 0));
+  end component;
 
 
-  signal CLK_2M, CLK_2M_D, PHASE_ZERO : std_logic;
+  signal CLK_2M, CLK_2M_D, PHASE_ZERO, PHASE_ZERO_R, PHASE_ZERO_F : std_logic;
   signal IO_SELECT, DEVICE_SELECT : std_logic_vector(7 downto 0);
   signal IO_STROBE : std_logic;
 
@@ -133,6 +178,7 @@ architecture arch of apple2_top is
   signal SSC_ROM_EN : std_logic;
   signal SSC_DO     : unsigned(7 downto 0);
 
+  signal CLOCK_DO     : unsigned(7 downto 0);
 
   signal we_ram : std_logic;
   signal VIDEO, HBL, VBL : std_logic;
@@ -149,7 +195,6 @@ architecture arch of apple2_top is
   signal power_on_reset : std_logic := '1';
   signal reset : std_logic;
 
-  signal D1_ACTIVE, D2_ACTIVE : std_logic;
 
   signal a_ram: unsigned(17 downto 0);
   
@@ -162,7 +207,6 @@ architecture arch of apple2_top is
   signal pdl_strobe : std_logic;
   signal open_apple : std_logic;
   signal closed_apple : std_logic;
-
 begin
 
 
@@ -172,7 +216,7 @@ begin
     if rising_edge(CLK_14M) then
       reset <= reset_warm or power_on_reset;
 
-      if reset_cold = '1' then
+      if reset_cold = '1' or soft_reset ='1'then
         power_on_reset <= '1';
         flash_clk <= (others=>'0');
       else
@@ -235,6 +279,7 @@ begin
   ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
 
   PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
+        CLOCK_DO when IO_SELECT(1) = '1' or DEVICE_SELECT(1) = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
@@ -244,6 +289,8 @@ begin
     CLK_2M         => CLK_2M,
     CPU_WAIT       => CPU_WAIT,
     PHASE_ZERO     => PHASE_ZERO,
+    PHASE_ZERO_R   => PHASE_ZERO_R,
+    PHASE_ZERO_F   => PHASE_ZERO_F,
     FLASH_CLK      => flash_clk(22),
     reset          => reset,
     cpu            => cpu_type,
@@ -258,6 +305,8 @@ begin
     NMI_N          => psg_nmi_n,
     ram_we         => we_ram,
     VIDEO          => VIDEO,
+    PALMODE        => PALMODE,
+    ROMSWITCH      => ROMSWITCH,
     COLOR_LINE     => COLOR_LINE,
     TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
@@ -272,6 +321,12 @@ begin
     DEVICE_SELECT  => DEVICE_SELECT,
     IO_STROBE      => IO_STROBE,
 
+    ioctl_addr     => ioctl_addr,
+    ioctl_data     => ioctl_data,
+    ioctl_index    => ioctl_index,
+    ioctl_download => ioctl_download,
+    ioctl_wr       => ioctl_wr,
+	 
     speaker        => audio(7)
     );
 
@@ -294,13 +349,19 @@ begin
   keyboard : entity work.keyboard port map (
     PS2_Key  => PS2_Key,
     CLK_14M  => CLK_14M,
-    reset    => reset,
+	 reset    => reset_cold, -- use reset_cold, not reset so we keep the
+	                         -- keyboard state machine running for key up 
+									 -- events during / after reset
     reads    => read_key,
     K        => K,
     akd      => akd,
     open_apple => open_apple,
-    closed_apple => closed_apple
+    closed_apple => closed_apple,
+    soft_reset => soft_reset
     );
+
+	 
+  DISK_ACT <= not (D1_ACTIVE or D2_ACTIVE);
 
   disk : entity work.disk_ii port map (
     CLK_14M        => CLK_14M,
@@ -309,21 +370,28 @@ begin
     IO_SELECT      => IO_SELECT(6),
     DEVICE_SELECT  => DEVICE_SELECT(6),
     RESET          => reset,
+    DISK_READY     => DISK_READY,  -- TODO
     A              => ADDR,
     D_IN           => D,
     D_OUT          => DISK_DO,
-    TRACK          => TRACK,
-    TRACK_ADDR     => open,
-    D1_ACTIVE      => D1_ACTIVE,
+    D1_ACTIVE      => D1_ACTIVE, 
     D2_ACTIVE      => D2_ACTIVE,
-    ram_write_addr => DISK_RAM_ADDR,
-    ram_di         => DISK_RAM_DI,
-    ram_we         => DISK_RAM_WE
+    -- track buffer interface for disk 1  -- TODO
+    TRACK1         => TRACK1,
+    TRACK1_ADDR    => TRACK1_ADDR,
+    TRACK1_DO      => TRACK1_DO,
+    TRACK1_DI      => TRACK1_DI,
+    TRACK1_WE      => TRACK1_WE,
+    TRACK1_BUSY    => TRACK1_BUSY,
+    -- track buffer interface for disk 2  -- TODO
+    TRACK2         => TRACK2,
+    TRACK2_ADDR    => TRACK2_ADDR,
+    TRACK2_DO      => TRACK2_DO,
+    TRACK2_DI      => TRACK2_DI,
+    TRACK2_WE      => TRACK2_WE,
+    TRACK2_BUSY    => TRACK2_BUSY
     );
-
-  DISK_ACT <= D1_ACTIVE or D2_ACTIVE;
-  DISK_RAM_DO <= (others => '0');
-
+	 
   hdd : entity work.hdd port map (
     CLK_14M        => CLK_14M,
     IO_SELECT      => IO_SELECT(7),
@@ -348,6 +416,8 @@ begin
     port map (
       CLK_14M    => CLK_14M,
       PHASE_ZERO => PHASE_ZERO,
+      PHASE_ZERO_R => PHASE_ZERO_R,
+      PHASE_ZERO_F => PHASE_ZERO_F,
       I_RESET_L => not reset,
       I_ENA_H   => mb_enabled,
 
@@ -385,6 +455,23 @@ begin
 	UART_DSR 	=> UART_DSR,
 	IRQ_N 		=> ssc_irq_n
 	);
+
+	clock : component clock_card
+  port map (
+	  CLK_14M         => CLK_14M,
+	  CLK_2M          => CLK_2M,
+	  PH_2            => PHASE_ZERO,
+	  IO_SELECT_N     => not IO_SELECT(1),
+	  DEVICE_SELECT_N => not DEVICE_SELECT(1),
+	  IO_STROBE_N     => NOT IO_STROBE,
+	  ADDRESS         => std_logic_vector(ADDR),
+	  RW_N            => not cpu_we,
+	  RESET           => reset,
+	  DATA_IN         => std_logic_vector(D),
+	  unsigned(DATA_OUT) => CLOCK_DO,
+	  RTC             => RTC
+	  );
+
 
 
   audio(6 downto 0) <= (others => '0');

@@ -16,8 +16,12 @@ entity apple2 is
   port (
     CLK_14M        : in  std_logic;              -- 14.31818 MHz master clock
     CLK_2M         : out std_logic;
+    PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
+    ROMSWITCH      : in std_logic;
     CPU_WAIT       : in  std_logic;
     PHASE_ZERO     : buffer std_logic;
+    PHASE_ZERO_R   : buffer std_logic;           -- next clock is PHI0=1
+    PHASE_ZERO_F   : buffer std_logic;           -- next clock is PHI0=0
     FLASH_CLK      : in  std_logic;        -- approx. 2 Hz flashing char clock
     reset          : in  std_logic;
     cpu            : in  std_logic;              -- 0 - 6502, 1 - 65C02
@@ -49,6 +53,12 @@ entity apple2 is
     IO_SELECT      : out std_logic_vector(7 downto 0);
     DEVICE_SELECT  : out std_logic_vector(7 downto 0);
     IO_STROBE      : out std_logic;
+	 -- load different video roms
+    ioctl_addr : in  std_logic_vector(24 downto 0);
+    ioctl_data : in  std_logic_vector(7 downto 0);
+    ioctl_index   : in  std_logic_vector(7 downto 0);
+    ioctl_download: in  std_logic;
+    ioctl_wr   : in  std_logic;
 
     speaker        : out std_logic              -- One-bit speaker output
     );
@@ -69,9 +79,9 @@ architecture rtl of apple2 is
   -- Clocks
   signal CLK_7M : std_logic;
   signal Q3, RAS_N, CAS_N, AX : std_logic;
-  signal PHASE_ZERO_D : std_logic;
   signal COLOR_REF : std_logic;
-  signal CPU_EN, CPU_EN_POST : std_logic;
+  signal CPU_EN : std_logic;
+  signal PHASE_ZERO_D : std_logic;
 
   -- From the timing generator
   signal VIDEO_ADDRESS : unsigned(15 downto 0);
@@ -157,6 +167,8 @@ architecture rtl of apple2 is
   signal ram_card_write : std_logic;
   signal ram_card_sel : std_logic;
 
+  
+  signal video_rom_select : std_logic;
 begin
 
   CLK_2M <= Q3;
@@ -306,7 +318,7 @@ begin
   speaker_ctrl: process (CLK_14M)
   begin
     if rising_edge(CLK_14M) then
-      if CPU_EN_POST = '1' and SPEAKER_SELECT = '1' then
+      if PHASE_ZERO_R = '1' and SPEAKER_SELECT = '1' then
         speaker_sig <= not speaker_sig;
       end if;
     end if;
@@ -315,7 +327,7 @@ begin
   softswitches: process (CLK_14M)
   begin
     if rising_edge(CLK_14M) then
-      if CPU_EN_POST = '1' and SOFTSWITCH_SELECT = '1' then
+      if PHASE_ZERO_R = '1' and SOFTSWITCH_SELECT = '1' then
         soft_switches(TO_INTEGER(A(3 downto 1))) <= A(0);
       end if;
     end if;
@@ -336,7 +348,7 @@ begin
         HRAM_WR_N <= '0';
         HRAM_BANK1 <= '0';
     elsif rising_edge(CLK_14M) then
-      if CPU_EN_POST = '1' and HRAM_CONTROL = '1' then
+      if PHASE_ZERO_R = '1' and HRAM_CONTROL = '1' then
         HRAM_BANK1 <= A(3);
         HRAM_PRE_WR <= A(0) and not we;
         if (HRAM_PRE_WR and not we and A(0)) = '1' then
@@ -373,7 +385,7 @@ begin
       elsif A = x"CFFF" then
         C8ROM <= '0';
       end if;
-      if CPU_EN_POST = '1' and KEYBOARD_SELECT = '1' and we = '1' then
+      if PHASE_ZERO_R = '1' and KEYBOARD_SELECT = '1' and we = '1' then
         case A(3 downto 1) is
         when "000" => STORE80 <= A(0);
         when "001" => RAMRD <= A(0);
@@ -418,22 +430,25 @@ begin
   D_IN <= CPU_DL when RAM_SELECT = '1' or HRAM_READ_EN = '1' or ram_card_read = '1' else  -- RAM
           K when KEYBOARD_SELECT = '1' else  -- Keyboard
           SF_D & K(6 downto 0) when C01X_SELECT = '1' else -- ][e softswitches
-          GAMEPORT(TO_INTEGER(A(2 downto 0))) & VIDEO_DL(6 downto 0)  -- Gameport
+          GAMEPORT(TO_INTEGER(A(2 downto 0))) & VIDEO_DL_LATCH(6 downto 0)  -- Gameport
              when GAMEPORT_SELECT = '1' else
           rom_out when ROM_SELECT = '1' else  -- ROMs
-          VIDEO_DL when TAPE_OUT = '1' or SPEAKER_SELECT = '1' or STB = '1' or
+          VIDEO_DL_LATCH(7 downto 0) when TAPE_OUT = '1' or SPEAKER_SELECT = '1' or STB = '1' or
                         SOFTSWITCH_SELECT = '1' or PDL_STROBE = '1' or
                         HRAM_CONTROL = '1' or A = x"CFFF" else  -- Floating bus
           PD;                           -- Peripherals
 
   timing : entity work.timing_generator port map (
     CLK_14M        => CLK_14M,
+	 PALMODE        => PALMODE,
     VID7M          => CLK_7M,
     CAS_N          => CAS_N,
     RAS_N          => RAS_N,
     Q3	           => Q3,
     AX             => AX,
     PHI0           => PHASE_ZERO,
+    PHI0_EN_R      => PHASE_ZERO_R,
+    PHI0_EN_F      => PHASE_ZERO_F,
     COLOR_REF      => COLOR_REF,
     TEXT_MODE      => TEXT_MODE,
     PAGE2          => PAGE2,
@@ -454,6 +469,8 @@ begin
     WNDW_N         => WNDW_N,
     LDPS_N         => LDPS_N);
 
+  video_rom_select <= '1' when ioctl_download='1' and ioctl_wr = '1' and ioctl_index = "00000001" else '0';
+	 
   video_display : entity work.video_generator port map (
     CLK_14M    => CLK_14M,
     CLK_7M     => CLK_7M,
@@ -462,25 +479,33 @@ begin
     SEGB       => SEGB,
     SEGC       => SEGC,
     ALTCHAR    => ALTCHAR,
+    ROMSWITCH  => ROMSWITCH,
     WNDW_N     => WNDW_N,
     DL         => VIDEO_DL,
     LDPS_N     => LDPS_N,
     FLASH_CLK  => FLASH_CLK,
+
+    ioctl_addr => ioctl_addr,
+    ioctl_data => ioctl_data,
+    ioctl_wr => video_rom_select,
+	 
     VIDEO      => VIDEO);
 
   we <= not T65_WE_N when cpu = '0' else not R65C02_WE_N;
   A <= unsigned(T65_A(15 downto 0)) when cpu = '0' else R65C02_A;
   D_OUT <= unsigned(T65_DO) when cpu = '0' else R65C02_DO;
   T65_DI <= std_logic_vector(D_OUT) when T65_WE_N = '0' else std_logic_vector(D_IN);
+  --CPU_EN <= PHASE_ZERO_F; -- not sure why this isn't working??
   CPU_EN <= '1' when PHASE_ZERO_D = '1' and PHASE_ZERO = '0' else '0';
-
   cpu_enable: process (CLK_14M)
   begin
     if rising_edge(CLK_14M) then
       PHASE_ZERO_D <= PHASE_ZERO;
-      CPU_EN_POST <= CPU_EN;
     end if;
   end process cpu_enable;
+
+
+
 
   cpu6502 : entity work.T65
     port map (

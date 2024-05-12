@@ -10,7 +10,8 @@ Port for the MiST: http://ws0.org/tag/apple2/
 
 ## Features
 
-* disk loading via osd (no write support yet) supported formats: .nib, .dsk, .do, .po
+* disk loading via osd. supported formats: .nib, .dsk, .do, .po 
+NOTE: only .nib will persist saves to disk
 * HDD loading via osd
 * Tape loading via the ADC-in
 * Selectable 6502 or 65C02 CPU
@@ -18,6 +19,8 @@ Port for the MiST: http://ws0.org/tag/apple2/
 * scanlines
 * color, amber, green and black&white monitor
 * language card in slot 0
+* prodos compatible clock card in slot 1
+* Super Serial Card in slot 2
 * 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
 * Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/?page_id=3447 , under "Saturn RAMSoft")
 * Mockingboard model A (two AY-3-8913 chips for six audio channels) in slot 4
@@ -70,6 +73,14 @@ or
 ```
 ]CALL -151`
 *C700G
+```
+
+## Instructions to rebuild roms
+
+Install the acme cross-assembler: https://sourceforge.net/projects/acme-crossass/
+```bash
+acme -o clock.bin clock.asm
+srec_cat clock.bin --binary -o clock2.hex --ascii_hex
 ```
 
 ### Pre-MiST ReadMe for historical purposes:
