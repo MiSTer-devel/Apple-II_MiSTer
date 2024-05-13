@@ -201,6 +201,12 @@ video_freak video_freak
 	.SCALE(status[15:14])
 );
 
+// Status Bit Map:
+// 0         1         2         3          4         5         6
+// 01234567890123456789012345678901 23456789012345678901234567890123
+// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
+// X   XXXXXXXXXXXXXXXXXXXXXX
+
 `include "build_id.v" 
 parameter CONF_STR = {
 	"Apple-II;UART19200:9600:4800:2400:1200:300;",
@@ -211,6 +217,7 @@ parameter CONF_STR = {
 	"-;",
 	"OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OJL,Display,Color 1,Color 2,B&W,Green,Amber;",
+	"OOP,Color palette,apple2fpga,IIgs,//e (2024), //e (2005);",
 	"O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
 	"OEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"OG,Pixel Clock,Double,Normal;",
@@ -389,6 +396,7 @@ apple2_top apple2_top
 	.b(B),
 	.SCREEN_MODE(screen_mode),
 	.TEXT_COLOR(text_color),
+	.COLOR_PALETTE(status[25:24]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),
 
