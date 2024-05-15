@@ -201,32 +201,53 @@ video_freak video_freak
 	.SCALE(status[15:14])
 );
 
+// Status Bit Map:
+// 0         1         2         3          4         5         6
+// 01234567890123456789012345678901 23456789012345678901234567890123
+// 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
+// X   XXXXXXXXXXXXXXXXXXXXXXXX
+
 `include "build_id.v" 
 parameter CONF_STR = {
 	"Apple-II;UART19200:9600:4800:2400:1200:300;",
 	"-;",
 	"S0,NIBDSKDO PO ;",
 	"S2,NIBDSKDO PO ;",
+	"OQR,Write Protect,None,Drive 1,Drive 2,Drive 1 & 2;",
+	"-;",
 	"S1,HDV;",
 	"-;",
-	"OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OJL,Display,Color 1,Color 2,B&W,Green,Amber;",
-	"O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
-	"OEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
-	"OG,Pixel Clock,Double,Normal;",
+	"OOP,Color palette,//e,IIgs,AppleWin,apple2fpga;",
 	"-;",
-	"O5,CPU,65C02,6502;",
-	"O4,Mocking board,Yes,No;",
-	"O78,Stereo mix,none,25%,50%,100%;",
-	"OM,PAL Mode,NTSC,PAL;",
-	"ON,Video Rom,US,LOCAL;",
-	"F1,BIN,Load 8k Video ROM;", 
-	"-;",
-	"O6,Analog X/Y,Normal,Swapped;",
-	"OHI,Paddle as analog,No,X,Y;",
+	"P1,System & BIOS;",
+	"P1-;",
+	"P1O5,CPU,65C02,6502;",
+	"P1OM,PAL Mode,NTSC,PAL;",
+	"P1-;",
+	"P1ON,Video Rom,US,LOCAL;",
+	"P1F1,BIN,Load 8k Video ROM;", 
+	"P1-;",	
+	"P2,Audio & Video;",
+	"P2-;",	
+	"P2O4,Mocking board,Yes,No;",
+	"P2O78,Stereo mix,none,25%,50%,100%;",
+	"P2-;",	
+	"P2OG,Pixel Clock,Double,Normal;",
+	"P2O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
+	"P2OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
+	"P2OEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
+	"P2-;",	
+	"P3,Hardware;",
+	"P3-;",	
+	"P3O6,Analog X/Y,Normal,Swapped;",
+	"P3OHI,Paddle as analog,No,X,Y;",
+	"P3-;",	
 	"-;",
 	"R0,Cold Reset;",
 	"JA,Fire 1,Fire 2;",
+	"jn,A|P,B;",
+	"jp,Y|P,B;",
 	"V,v",`BUILD_DATE
 };
 
@@ -389,6 +410,7 @@ apple2_top apple2_top
 	.b(B),
 	.SCREEN_MODE(screen_mode),
 	.TEXT_COLOR(text_color),
+	.COLOR_PALETTE(status[25:24]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),
 
@@ -421,6 +443,9 @@ apple2_top apple2_top
 	.D1_ACTIVE(D1_ACTIVE),
 	.D2_ACTIVE(D2_ACTIVE),
 	.DISK_ACT(led),
+
+	.D1_WP(status[26]),
+	.D2_WP(status[27]),
 
 	.HDD_SECTOR(sd_lba[1]),
 	.HDD_READ(hdd_read),

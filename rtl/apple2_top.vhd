@@ -58,8 +58,10 @@ port (
 	SCREEN_MODE    : in  std_logic_vector(1 downto 0); -- 00: Color, 01: B&W, 10:Green, 11: Amber
 	TEXT_COLOR     : in  std_logic; -- 1 = color processing for
 	                                -- text lines in mixed modes
-   PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
-   ROMSWITCH      : in std_logic;
+	COLOR_PALETTE  :  in std_logic_vector(1 downto 0); -- 00: Original, 01: //gs, 02: //e, 03: //e alternative
+	
+    PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
+    ROMSWITCH      : in std_logic;
 
 	PS2_Key        : in  std_logic_vector(10 downto 0);
 	joy            : in  std_logic_vector(5 downto 0);
@@ -87,6 +89,9 @@ port (
 	 
 	D1_ACTIVE      : buffer std_logic;             -- Disk 1 motor on
 	D2_ACTIVE      : buffer std_logic;             -- Disk 2 motor on
+	
+	D1_WP          : in std_logic;
+	D2_WP          : in std_logic;
 
 	DISK_ACT       : out std_logic;
 
@@ -335,6 +340,7 @@ begin
     VIDEO      => VIDEO,
     COLOR_LINE => COLOR_LINE_CONTROL,
     SCREEN_MODE => SCREEN_MODE,
+    COLOR_PALETTE => COLOR_PALETTE,
     HBL        => HBL,
     VBL        => VBL,
     VGA_HS     => hsync,
@@ -376,6 +382,9 @@ begin
     D_OUT          => DISK_DO,
     D1_ACTIVE      => D1_ACTIVE, 
     D2_ACTIVE      => D2_ACTIVE,
+    D1_WP          => D1_WP,
+    D2_WP          => D2_WP, 
+	 
     -- track buffer interface for disk 1  -- TODO
     TRACK1         => TRACK1,
     TRACK1_ADDR    => TRACK1_ADDR,
