@@ -217,7 +217,7 @@ parameter CONF_STR = {
 	"-;",
 	"OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"OJL,Display,Color 1,Color 2,B&W,Green,Amber;",
-	"OOP,Color palette,apple2fpga,IIgs,//e (2024), //e (2005);",
+	"OOP,Color palette,//e,IIgs,AppleWin,apple2fpga;",
 	"O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
 	"OEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
 	"OG,Pixel Clock,Double,Normal;",
