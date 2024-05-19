@@ -58,7 +58,10 @@ port (
 	SCREEN_MODE    : in  std_logic_vector(1 downto 0); -- 00: Color, 01: B&W, 10:Green, 11: Amber
 	TEXT_COLOR     : in  std_logic; -- 1 = color processing for
 	                                -- text lines in mixed modes
-	COLOR_PALETTE  :  in std_logic_vector(1 downto 0); -- 00: Original, 01: //gs, 02: //e, 03: //e alternative
+	
+	video_switch   : out std_logic;
+	palette_switch : out std_logic;
+	COLOR_PALETTE  :  in std_logic_vector(1 downto 0); -- 00: Original (//e NTSC), 01: //gs, 02: AppleWin, 03: //c PAL
 	
     PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
     ROMSWITCH      : in std_logic;
@@ -69,9 +72,7 @@ port (
 
 	-- mocking board
 	mb_enabled 		: in std_logic;
-
-
-
+	
 	-- disk control
 	TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
 	TRACK1_ADDR    : out unsigned(12 downto 0);
@@ -363,7 +364,9 @@ begin
     akd      => akd,
     open_apple => open_apple,
     closed_apple => closed_apple,
-    soft_reset => soft_reset
+    soft_reset => soft_reset,
+    video_toggle => video_switch,
+	palette_toggle => palette_switch
     );
 
 	 

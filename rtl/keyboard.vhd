@@ -23,10 +23,12 @@ entity keyboard is
     reset    : in std_logic;
     akd      : buffer std_logic;        -- Any key down
     K        : out unsigned(7 downto 0); -- Latched, decoded keyboard data
-    open_apple:out std_logic;
-    closed_apple:out std_logic;
-    soft_reset:out std_logic := '0'
-    );
+    open_apple:    out std_logic;
+    closed_apple:  out std_logic;
+    soft_reset:    out std_logic := '0';
+  	video_toggle:  out std_logic := '0';	  -- signal to control change of video modes
+    palette_toggle:out std_logic := '0'	  -- signal to control change of paleetes
+	);
 end keyboard;
 
 architecture rtl of keyboard is
@@ -50,7 +52,9 @@ architecture rtl of keyboard is
   constant WINDOWS          : unsigned(7 downto 0) := X"1F";
   constant ALT              : unsigned(7 downto 0) := X"11";
   constant F2               : unsigned(7 downto 0) := X"06";
-
+  constant F8               : unsigned(7 downto 0) := X"0A";
+  constant F9               : unsigned(7 downto 0) := X"01";
+	
   type states is (IDLE,
                   HAVE_CODE,
                   DECODE,
@@ -97,6 +101,8 @@ begin
       --open_apple<='0';
       --closed_apple<='0';
 		soft_reset<='0';
+		video_toggle<='0';
+		palette_toggle<='0';
     elsif rising_edge(CLK_14M) then
      if state = HAVE_CODE then
         if code = LEFT_SHIFT or code = RIGHT_SHIFT then
@@ -110,6 +116,10 @@ begin
         elsif code = F2 then
 		    soft_reset <= '1';
           --reset_key <= '1';
+	    elsif code = F8 then
+			palette_toggle <= '1';
+		elsif code = F9 then
+			video_toggle <= '1';
         end if;
       elsif state = KEY_UP then
         if code = LEFT_SHIFT or code = RIGHT_SHIFT then
@@ -123,6 +133,10 @@ begin
         elsif code = F2 then
           --reset_key <= '0';
 			 soft_reset <= '0';
+		elsif code = F8 then
+			palette_toggle <= '0';
+		elsif code = F9 then
+			video_toggle <= '0';
         end if;
       end if;
     end if;
