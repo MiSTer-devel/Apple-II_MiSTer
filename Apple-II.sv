@@ -217,8 +217,8 @@ parameter CONF_STR = {
 	"-;",
 	"S1,HDV;",
 	"-;",
-	"OJL,Display,Color 1,Color 2,B&W,Green,Amber;",
-	"OOP,Color palette,//e,IIgs,AppleWin,apple2fpga;",
+	"OJK,Display,Color,B&W,Green,Amber;",
+	"OOP,Color palette,NTSC //e,IIgs,AppleWin,PAL //c;",
 	"-;",
 	"P1,System & BIOS;",
 	"P1-;",
@@ -234,6 +234,8 @@ parameter CONF_STR = {
 	"P2O78,Stereo mix,none,25%,50%,100%;",
 	"P2-;",	
 	"P2OG,Pixel Clock,Double,Normal;",
+	"P2OL,Lo-Res Text,Clean,Composite;",
+	"P2-;",	
 	"P2O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
 	"P2OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
 	"P2OEF,Scale,Normal,V-Integer,Narrower HV-Integer,Wider HV-Integer;",
@@ -306,6 +308,8 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
+	.status_in({status[31:26],palette_req,status[23:21],screen_mode_req,status[18:0]}),
+	.status_set(video_toggle || palette_toggle),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
@@ -363,31 +367,42 @@ end
 wire led;
 wire hbl,vbl;
 
-reg [1:0] screen_mode;
-reg       text_color;
+reg       text_color = 0;
+reg       video_toggle = 0;
+reg       palette_toggle = 0;
+wire [1:0] screen_mode;
+wire [1:0] palette_mode;
+reg [1:0] screen_mode_req;
+reg [1:0] palette_req;
 
-always @(status[21:19]) case (status[21:19])
-	3'b001: begin
-		screen_mode = 2'b00;
-		text_color = 1;
-	end
-	3'b010: begin
-		screen_mode = 2'b01;
-		text_color = 0;
-	end
-	3'b011: begin
-		screen_mode = 2'b10;
-		text_color = 0;
-	end
-	3'b100: begin
-		screen_mode = 2'b11;
-		text_color = 0;
-	end
-	default: begin
-		screen_mode = 2'b00;
-		text_color = 0;
-	end
-endcase // always @ (status[21:19])
+assign screen_mode = status[20:19];
+assign palette_mode = status[25:24];
+
+always @(posedge clk_sys) begin
+	reg old_toggle = 0;
+	reg old_pal_toggle = 0;
+
+	old_toggle <= video_toggle;
+	old_pal_toggle <= palette_toggle;
+
+	// display change request from keyboard
+	if (video_toggle != old_toggle) begin
+		screen_mode_req = screen_mode + 1'b1;
+	end 
+	
+	// palette change request from keyboard
+	if (palette_toggle != old_pal_toggle) begin
+		palette_req = palette_mode + 1'b1;
+		screen_mode_req = 2'b00; //force color when switching palettes
+	end;
+	
+end
+
+always @(posedge clk_sys) begin	
+	// flag to enable Lo-Res text artifacting, only applicable in screen mode 2'b00
+	text_color <= (~status[20] & ~status[19] & status[21]);
+end  
+
 
 apple2_top apple2_top
 (
@@ -408,8 +423,10 @@ apple2_top apple2_top
 	.r(R),
 	.g(G),
 	.b(B),
-	.SCREEN_MODE(screen_mode),
-	.TEXT_COLOR(text_color),
+	.video_switch(video_toggle),
+	.palette_switch(palette_toggle),
+	.SCREEN_MODE( status[20:19] ),
+	.TEXT_COLOR( text_color ),
 	.COLOR_PALETTE(status[25:24]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),

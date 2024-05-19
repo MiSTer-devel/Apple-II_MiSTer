@@ -66,6 +66,9 @@ architecture rtl of vga_controller is
 	constant basis_g : basis_color := ( X"22", X"24", X"67", X"52" );
 	constant basis_b : basis_color := ( X"2C", X"A0", X"2C", X"07" );
 
+	constant WHITE: unsigned(7 downto 0) := X"FF";
+	constant WHITE_NTSC: unsigned(7 downto 0) := X"F1";
+	
 	signal shift_reg : unsigned(5 downto 0);  -- Last six pixels
 
 	signal last_hbl : std_logic;
@@ -142,8 +145,14 @@ begin
 			if shift_reg(2) = '1' then
 				-- handle green/amber color modes
 				case SCREEN_MODE is 
-					when "00" => r := X"FF"; g := X"FF"; b := X"FF"; -- white (color mode)
-					when "01" => r := X"FF"; g := X"FF"; b := X"FF"; -- white (B&W mode)
+					when "00" => 
+						-- white (color mode)
+						if COLOR_PALETTE = "00" then
+							r := WHITE_NTSC; g := WHITE_NTSC; b := WHITE_NTSC;
+						else
+							r := WHITE; g := WHITE; b := WHITE;
+						end if;						
+					when "01" => r := WHITE; g := WHITE; b := WHITE; -- white (B&W mode)
 					when "10" => r := X"00"; g := X"C0"; b := X"01"; -- green
 					when "11" => r := X"FF"; g := X"80"; b := X"01"; -- amber 
 				end case;
@@ -175,7 +184,7 @@ begin
 					when "1001"      => r := X"3C"; g := X"CC"; b := X"00"; -- green
 					when "1011"      => r := X"BC"; g := X"D6"; b := X"00"; -- yellow
 					when "1101"      => r := X"6C"; g := X"E6"; b := X"B8"; -- aquamarine
-					when "1111"      => r := X"FF"; g := X"FF"; b := X"FF"; -- white
+					when "1111"      => r := WHITE_NTSC; g := WHITE_NTSC; b := WHITE_NTSC; -- white
 				end case;
 				
 			elsif COLOR_PALETTE = "01" then
@@ -198,30 +207,8 @@ begin
 					when "1001"      => r := X"40"; g := X"DE"; b := X"00"; -- 12 - green
 					when "1011"      => r := X"FE"; g := X"FE"; b := X"00"; -- 13 - yellow
 					when "1101"      => r := X"67"; g := X"FC"; b := X"A4"; -- 14 - aquamarine
-					when "1111"      => r := X"FF"; g := X"FF"; b := X"FF"; -- 15 - white
+					when "1111"      => r := WHITE; g := WHITE; b := WHITE; -- 15 - white
 				end case;
-			
-				--elsif COLOR_PALETTE = "10" then
-				-- older 2005 palette from Linards Ticmanis posted on comp.sys.apple2 in 29-Sep-2005
-				-- (kept for historical comparison)
-				--case shift_color is
-					--when "0000"      => r := X"00"; g := X"00"; b := X"00"; -- black   
-					--when "0010"      => r := X"8A"; g := X"21"; b := X"40"; -- magenta 
-					--when "0100"      => r := X"2C"; g := X"22"; b := X"a5"; -- dark blue
-					--when "0110"      => r := X"d0"; g := X"43"; b := X"E3"; -- purple
-					--when "1000"      => r := X"07"; g := X"70"; b := X"28"; -- dark green
-					--when "0101"      => r := X"7b"; g := X"7e"; b := X"80"; -- gray 1
-					--when "1100"      => r := X"30"; g := X"8F"; b := X"e3"; -- med blue
-					--when "1110"      => r := X"B9"; g := X"A9"; b := X"FD"; -- light blue
-					--when "0001"      => r := X"3b"; g := X"51"; b := X"07"; -- brown   
-					--when "0011"      => r := X"B6"; g := X"8F"; b := X"00"; -- orange  
-					--when "1010"      => r := X"7b"; g := X"7E"; b := X"80"; -- gray 2
-					--when "0111"      => r := X"F3"; g := X"9A"; b := X"C2"; -- pink
-					--when "1001"      => r := X"2f"; g := X"B8"; b := X"1F"; -- green
-					--when "1011"      => r := X"BF"; g := X"D3"; b := X"5A"; -- yellow
-					--when "1101"      => r := X"6E"; g := X"E1"; b := X"C0"; -- aquamarine
-					--when "1111"      => r := X"FF"; g := X"FF"; b := X"FF"; -- white
-				--end case;
 				
 				elsif COLOR_PALETTE = "10" then
 				-- AppleWin palette as of 1.13.18.0
@@ -241,38 +228,76 @@ begin
 					when "1001"      => r := X"43"; g := X"C8"; b := X"00"; -- green
 					when "1011"      => r := X"DC"; g := X"CD"; b := X"16"; -- yellow
 					when "1101"      => r := X"5D"; g := X"F7"; b := X"84"; -- aquamarine
-					when "1111"      => r := X"FF"; g := X"FF"; b := X"FF"; -- white
+					when "1111"      => r := WHITE; g := WHITE; b := WHITE; -- white
 				end case;			
 			else
-				-- original implementaiton of Apple II FPGA core (sedwards, 2009)
-				-- Tint of adjacent pixels is consistent : display the color
-				if shift_reg(3) = '1' then
-					r := r + basis_r(to_integer(hcount + 1));
-					g := g + basis_g(to_integer(hcount + 1));
-					b := b + basis_b(to_integer(hcount + 1));
-				end if;
-				if shift_reg(4) = '1' then
-					r := r + basis_r(to_integer(hcount + 2));
-					g := g + basis_g(to_integer(hcount + 2));
-					b := b + basis_b(to_integer(hcount + 2));
-				end if;
-				if shift_reg(1) = '1' then
-					r := r + basis_r(to_integer(hcount + 3));
-					g := g + basis_g(to_integer(hcount + 3));
-					b := b + basis_b(to_integer(hcount + 3));
-				end if;
-				if shift_reg(2) = '1' then
-					r := r + basis_r(to_integer(hcount));
-					g := g + basis_g(to_integer(hcount));
-					b := b + basis_b(to_integer(hcount));
-				end if;
+			
+				-- Handpicked colors by visual comparison of all palettes vs. a //c PAL display
+				-- PAL //c displays do not have artifacto color and produce B&W images,
+				-- so this is an attempt to make color work with composite video-out on such displays
+				-- (NOTE: commented-out values will fallback to the apple2fpga method)
+				case shift_color is
+					when "0000"      => r := X"00"; g := X"00"; b := X"00";    --  0 - black   
+					-- when "0010"      => r := X"93"; g := X"0B"; b := X"7C"; --  1 - magenta    (apple2fpga)
+					-- when "0100"      => r := X"1F"; g := X"35"; b := X"D3"; --  2 - dark blue  (apple2fpga)
+					when "0110"      => r := X"DC"; g := X"43"; b := X"E1";    --  3 - purple     (Apple IIgs)
+					--when "1000"      => r := X"00"; g := X"76"; b := X"0C";  --  4 - dark green (apple2fpga)
+					when "0101"      => r := X"7E"; g := X"7E"; b := X"7E";    --  5 - gray 1     (AppleWin)
+					when "1100"      => r := X"36"; g := X"92"; b := X"FF";    --  6 - med blue   (IIe)
+					when "1110"      => r := X"7A"; g := X"B3"; b := X"FF";    --  7 - light blue (Apple IIgs)
+					-- when "0001"      => r := X"62"; g := X"4C"; b := X"00"; --  8 - brown      (apple2fpga)
+					when "0011"      => r := X"F9"; g := X"56"; b := X"1D";    --  9 - orange     (Apple IIgs)
+					when "1010"      => r := X"7E"; g := X"7E"; b := X"7E";    -- 10 - gray 2     (AppleWin)
+					when "0111"      => r := X"FB"; g := X"A5"; b := X"93";    -- 11 - pink       (Apple IIgs)
+					when "1001"      => r := X"40"; g := X"DE"; b := X"00";    -- 12 - green      (Apple IIgs)
+					when "1011"      => r := X"DC"; g := X"CD"; b := X"16";    -- 13 - Yellow     (AppleWin)
+					when "1101"      => r := X"67"; g := X"FC"; b := X"A4";    -- 14 - aquamarine (Apple IIgs)
+					when "1111"      => r := WHITE; g := WHITE; b := WHITE;    -- 15 - white
+					
+					when "0010"|"0100"|"1000"|"0001" =>
+								
+						-- original implementaiton of Apple II FPGA core (sedwards, 2009)
+						-- Tint of adjacent pixels is consistent : display the color
+						if shift_reg(3) = '1' then
+							r := r + basis_r(to_integer(hcount + 1));
+							g := g + basis_g(to_integer(hcount + 1));
+							b := b + basis_b(to_integer(hcount + 1));
+						end if;
+						if shift_reg(4) = '1' then
+							r := r + basis_r(to_integer(hcount + 2));
+							g := g + basis_g(to_integer(hcount + 2));
+							b := b + basis_b(to_integer(hcount + 2));
+						end if;
+						if shift_reg(1) = '1' then
+							r := r + basis_r(to_integer(hcount + 3));
+							g := g + basis_g(to_integer(hcount + 3));
+							b := b + basis_b(to_integer(hcount + 3));
+						end if;
+						if shift_reg(2) = '1' then
+							r := r + basis_r(to_integer(hcount));
+							g := g + basis_g(to_integer(hcount));
+							b := b + basis_b(to_integer(hcount));
+						end if;
+					
+				end case;
 			end if;
 		else
 		 
 			-- Tint is changing: display only black, gray, or white
 			case shift_reg(3 downto 2) is
-				when "11"        => r := X"FF"; g := X"FF"; b := X"FF";
-				when "01" | "10" => r := X"80"; g := X"80"; b := X"80";
+				when "11"        =>
+				
+					-- white
+					if COLOR_PALETTE = "00" then
+						r := WHITE_NTSC; g := WHITE_NTSC; b := WHITE_NTSC;
+					else
+						r := WHITE; g := WHITE; b := WHITE;
+					end if;
+				
+				-- gray - we use the darkest gray of all the palettes to avoid it being too prominent
+				when "01" | "10" => r := X"63"; g := X"63"; b := X"63";
+					
+				-- black
 				when others      => r := X"00"; g := X"00"; b := X"00";
 			end case;
 		end if;
