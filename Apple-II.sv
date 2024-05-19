@@ -309,7 +309,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.buttons(buttons),
 	.status(status),
 	.status_in({status[31:26],palette_req,status[23:21],screen_mode_req,status[18:0]}),
-	.status_set(video_toggle), //|palette_toggle),
+	.status_set(video_toggle || palette_toggle),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
@@ -367,9 +367,9 @@ end
 wire led;
 wire hbl,vbl;
 
-reg       text_color;
-reg       video_toggle;
-reg       palette_toggle;
+reg       text_color = 0;
+reg       video_toggle = 0;
+reg       palette_toggle = 0;
 wire [1:0] screen_mode;
 wire [1:0] palette_mode;
 reg [1:0] screen_mode_req;
@@ -379,19 +379,23 @@ assign screen_mode = status[20:19];
 assign palette_mode = status[25:24];
 
 always @(posedge clk_sys) begin
-
 	reg old_toggle = 0;
+	reg old_pal_toggle = 0;
+
 	old_toggle <= video_toggle;
-	
+	old_pal_toggle <= palette_toggle;
+
 	// display change request from keyboard
 	if (video_toggle != old_toggle) begin
-		screen_mode_req <= screen_mode + 1'b1;
-		//palette_req <= palette_mode;
-	end /*else begin
-		if (palette_toggle & !video_toggle) begin
-			palette_req <= palette_mode + 1'b1;
-		end;
-	end */
+		screen_mode_req = screen_mode + 1'b1;
+	end 
+	
+	// palette change request from keyboard
+	if (palette_toggle != old_pal_toggle) begin
+		palette_req = palette_mode + 1'b1;
+		screen_mode_req = 2'b00; //force color when switching palettes
+	end;
+	
 end
 
 always @(posedge clk_sys) begin	
