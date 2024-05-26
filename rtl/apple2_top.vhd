@@ -350,7 +350,13 @@ begin
     VGA_VBL    => vblank,
     std_logic_vector(VGA_R) => r,
     std_logic_vector(VGA_G) => g,
-    std_logic_vector(VGA_B) => b
+    std_logic_vector(VGA_B) => b,
+    -- for custom palette loader
+    ioctl_addr     => ioctl_addr,
+    ioctl_data     => ioctl_data,
+    ioctl_wr       => ioctl_wr,
+	 ioctl_index    => ioctl_index,
+	 ioctl_download => ioctl_download
     );
 
   keyboard : entity work.keyboard port map (
