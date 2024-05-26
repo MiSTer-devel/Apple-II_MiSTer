@@ -47,7 +47,8 @@ entity vga_controller is
         ioctl_data : in  std_logic_vector(7 downto 0);
 		ioctl_index   : in  std_logic_vector(7 downto 0);
 		ioctl_download: in  std_logic;
-		ioctl_wr   :    in  std_logic
+		ioctl_wr   :    in  std_logic;
+		ioctl_wait :    out std_logic
 	   
 	);
 end vga_controller;
@@ -126,12 +127,10 @@ architecture rtl of vga_controller is
 begin
 
 -- palette processing
-process (CLK_14M)
-	variable last_address : unsigned(24 downto 0); 		
+process (CLK_14M)		
 begin
     if rising_edge(CLK_14M) then
     
-
 		-- whether to update palette RAM; ioctl_index must be consistent with declaration in MiSTer config string
 		if ioctl_download = '1' and ioctl_index = "00000010"  then
 			-- palette is downloading so preserve values of registers
@@ -155,13 +154,8 @@ begin
 			-- but first check if the new data is ready
 			if ioctl_wr = '1' then
 				
-				if color_addr > "10" then
-					-- cycle to next palette color
-					color_addr <= "00";
-					if palette_index < "1110" then
-						palette_index <= palette_index + 1;
-					end if;
-				end if;
+				ioctl_wait <= '1';
+				
 				case color_addr is
 					when "00" => palette_rgb_in <= unsigned(ioctl_data) & palette_rgb_in(15 downto 0) ;
 					when "01" => palette_rgb_in <= palette_rgb_in(23 downto 16) & unsigned(ioctl_data) & palette_rgb_in(7 downto 0) ;
@@ -186,8 +180,14 @@ begin
 					when "1110" => BUFFER_COL14 <= palette_rgb_in;
 					when "1111" => BUFFER_COL15 <= palette_rgb_in;
 				end case;
-				color_addr <= color_addr + 1;
-				last_address := unsigned(ioctl_addr);
+				if color_addr < "11" then
+					color_addr <= color_addr + 1;
+				else
+					color_addr <= "00";
+					palette_index <= palette_index + 1;					
+				end if;
+				ioctl_wait  <=  '0';
+				
 			end if;
 			
 		else
@@ -195,7 +195,7 @@ begin
 				palette_index <= "0000";
 				color_addr <= "00";
 				palette_rgb_in <= "000000000000000000000000";
-				last_address := "0000000000000000000000000";
+				
 				CURRENT_COL0 <= BUFFER_COL0;
 				CURRENT_COL1 <= BUFFER_COL1;
 				CURRENT_COL2 <= BUFFER_COL2;
@@ -377,7 +377,7 @@ begin
 						when "1110"      =>  r := CURRENT_COL7(23 downto 16); g := CURRENT_COL7(15 downto 8); b := CURRENT_COL7(7 downto 0);  -- light blue
 						when "0001"      =>  r := CURRENT_COL8(23 downto 16); g := CURRENT_COL8(15 downto 8); b := CURRENT_COL8(7 downto 0);  -- brown   
 						when "0011"      =>  r := CURRENT_COL9(23 downto 16); g := CURRENT_COL9(15 downto 8); b := CURRENT_COL9(7 downto 0);   -- orange  
-						when "0101"      =>  r := CURRENT_COL10(23 downto 16); g := CURRENT_COL5(15 downto 8); b := CURRENT_COL10(7 downto 0);  -- gray 2
+						when "0101"      =>  r := CURRENT_COL10(23 downto 16); g := CURRENT_COL10(15 downto 8); b := CURRENT_COL10(7 downto 0);  -- gray 2
 						when "0111"      =>  r := CURRENT_COL11(23 downto 16); g := CURRENT_COL11(15 downto 8); b := CURRENT_COL11(7 downto 0); -- pink
 						when "1001"      =>  r := CURRENT_COL12(23 downto 16); g := CURRENT_COL12(15 downto 8); b := CURRENT_COL12(7 downto 0); -- green
 						when "1011"      =>  r := CURRENT_COL13(23 downto 16); g := CURRENT_COL13(15 downto 8); b := CURRENT_COL13(7 downto 0); -- yellow

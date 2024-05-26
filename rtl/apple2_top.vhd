@@ -46,6 +46,7 @@ port (
 	ioctl_index   : in  std_logic_vector(7 downto 0);
 	ioctl_download: in  std_logic;
 	ioctl_wr      : in  std_logic;
+	ioctl_wait	  : out std_logic;
 
 	-- video output
 	hsync          : out std_logic;
@@ -356,7 +357,8 @@ begin
     ioctl_data     => ioctl_data,
     ioctl_wr       => ioctl_wr,
 	 ioctl_index    => ioctl_index,
-	 ioctl_download => ioctl_download
+	 ioctl_download => ioctl_download,
+	 ioctl_wait => ioctl_wait
     );
 
   keyboard : entity work.keyboard port map (
