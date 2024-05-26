@@ -267,7 +267,16 @@ begin
 		
 		-- alternate background for monochrome modes
 		case SCREEN_MODE is 
-			when "00" => r := X"00"; g := X"00"; b := X"00"; -- color mode background
+			when "00" => 
+				-- color mode background
+				if COLOR_PALETTE = "11" then
+					-- use custom palette
+					r := CURRENT_COL0(23 downto 16); g := CURRENT_COL0(15 downto 8); b := CURRENT_COL0(7 downto 0); -- black
+				else
+					-- or black for the rest
+					r := X"00"; g := X"00"; b := X"00"; 
+					
+				end if;
 			when "01" => r := X"00"; g := X"00"; b := X"00"; -- B&W mode background
 			when "10" => r := X"00"; g := X"0F"; b := X"01"; -- green mode background color
 			when "11" => r := X"20"; g := X"08"; b := X"01"; -- amber mode background color
@@ -281,8 +290,13 @@ begin
 					when "00" => 
 						-- white (color mode)
 						if COLOR_PALETTE = "00" then
+							-- NTSC palette
 							r := WHITE_NTSC; g := WHITE_NTSC; b := WHITE_NTSC;
+						elsif COLOR_PALETTE = "11" then
+							-- custom palette
+							r := CURRENT_COL15(23 downto 16); g := CURRENT_COL15(15 downto 8); b := CURRENT_COL15(7 downto 0); -- white
 						else
+							-- Apple IIgs and AppleWin palettes
 							r := WHITE; g := WHITE; b := WHITE;
 						end if;						
 					when "01" => r := WHITE; g := WHITE; b := WHITE; -- white (B&W mode)
@@ -362,7 +376,7 @@ begin
 					when "1011"      => r := X"DC"; g := X"CD"; b := X"16"; -- yellow
 					when "1101"      => r := X"5D"; g := X"F7"; b := X"84"; -- aquamarine
 					when "1111"      => r := WHITE; g := WHITE; b := WHITE; -- white
-				end case;			
+				end case;
 			else
 					
 				-- Use custom palette
@@ -395,13 +409,20 @@ begin
 					-- white
 					if COLOR_PALETTE = "00" then
 						r := WHITE_NTSC; g := WHITE_NTSC; b := WHITE_NTSC;
+					elsif COLOR_PALETTE = "11" then
+						-- custom palette
+						r := CURRENT_COL15(23 downto 16); g := CURRENT_COL15(15 downto 8); b := CURRENT_COL15(7 downto 0); -- white
 					else
 						r := WHITE; g := WHITE; b := WHITE;
 					end if;
 				
 				-- gray - we use the darkest gray of all the palettes to avoid it being too prominent
-				when "01" | "10" => r := X"63"; g := X"63"; b := X"63";
-					
+				when "01" | "10" => 
+					if COLOR_PALETTE = "11" then
+						 r := CURRENT_COL5(23 downto 16); g := CURRENT_COL5(15 downto 8); b := CURRENT_COL5(7 downto 0); -- gray 1 (darker)
+					else
+						r := X"63"; g := X"63"; b := X"63";
+					end if;
 				-- black
 				when others      => r := X"00"; g := X"00"; b := X"00";
 			end case;
