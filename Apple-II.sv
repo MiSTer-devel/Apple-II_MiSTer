@@ -205,7 +205,7 @@ video_freak video_freak
 // 0         1         2         3          4         5         6
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// X   XXXXXXXXXXXXXXXXXXXXXXXX
+// X   XXXXXXXXXXXXXXXXXXXXXXXX 
 
 `include "build_id.v" 
 parameter CONF_STR = {
@@ -218,7 +218,8 @@ parameter CONF_STR = {
 	"S1,HDV;",
 	"-;",
 	"OJK,Display,Color,B&W,Green,Amber;",
-	"OOP,Color palette,NTSC //e,IIgs,AppleWin,PAL //c;",
+	"OOP,Color palette,NTSC //e,IIgs,AppleWin,Custom;",
+	"FC2,A2P,Custom Palette;",	
 	"-;",
 	"P1,System & BIOS;",
 	"P1-;",
@@ -308,7 +309,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	.status_in({status[31:26],palette_req,status[23:21],screen_mode_req,status[18:0]}),
+	.status_in({status[31:26],palette_toggle?palette_req:status[25:24],status[23:21],video_toggle?screen_mode_req:status[20:19],status[18:0]}),
 	.status_set(video_toggle || palette_toggle),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),

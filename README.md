@@ -15,12 +15,14 @@ NOTE: only .nib will persist saves to disk
 * HDD loading via osd
 * Tape loading via the ADC-in
 * Selectable 6502 or 65C02 CPU
-* joystick support
-* scanlines
-* color, amber, green and black&white monitor
-* selection of color palette (NTSC //e, Apple IIgs, AppleWin,PAL //c) 
-* language card in slot 0
-* prodos compatible clock card in slot 1
+* Load custom video ROM (default built-in: US/UK)
+* Joystick support
+* Scanlines
+* Color, amber, green and black&white monitor
+* selection of color palette (NTSC //e, Apple IIgs, AppleWin, Custom)
+* Load custom palette from file 
+* Language card in slot 0
+* ProdDOS compatible clock card in slot 1
 * Super Serial Card in slot 2
 * 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
 * Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/?page_id=3447 , under "Saturn RAMSoft")
@@ -28,7 +30,22 @@ NOTE: only .nib will persist saves to disk
 
 ## Keyboard shortcuts
 
+* Win/Cmd Key - Closed Apple
+* Alt Key - Open Apple
+* F2 - RESET key
+* F8 - cycle through color palettes (NTSC, Apple IIgs, AppleWin, Custom)
 * F9 - cycle through display monitor modes (color, b&w, green, amber)
+
+## Apple II slot assignments
+
+* Slot 0 - language card
+* Slot 1 - clock card (PRODOS compatible)
+* Slot 2 - Super Serial Card
+* Slot 3 - 80 col + 64K RAM expansion (//e)
+* Slot 4 - Mockinboard model A (six audio channels)
+* Slot 5 - Saturn 128kb RAM expansion (total of 256kb)
+* Slot 6 - Disk Drive controller
+* Slot 7 - Hard Disk Drive controller
 
 ## Disk format notes
 

@@ -5,8 +5,6 @@
 -- Stephen A. Edwards, sedwards@cs.columbia.edu
 --
 --
--- FIXME: This is all wrong
---
 -- The Apple ][ uses a 14.31818 MHz master clock.  It outputs a new
 -- horizontal line every 65 * 14 + 2 = 912 14M cycles.  The extra two
 -- are from the "extended cycle" used to keep the 3.579545 MHz
@@ -43,7 +41,15 @@ entity vga_controller is
 		VGA_VBL    : out std_logic;
 		VGA_R      : out unsigned(7 downto 0);
 		VGA_G      : out unsigned(7 downto 0);
-		VGA_B      : out unsigned(7 downto 0)
+		VGA_B      : out unsigned(7 downto 0);			
+        -- load different palettes
+	    ioctl_addr : in  std_logic_vector(24 downto 0);
+        ioctl_data : in  std_logic_vector(7 downto 0);
+		ioctl_index   : in  std_logic_vector(7 downto 0);
+		ioctl_download: in  std_logic;
+		ioctl_wr   :    in  std_logic;
+		ioctl_wait :    out std_logic
+	   
 	);
 end vga_controller;
 
@@ -58,14 +64,7 @@ architecture rtl of vga_controller is
 
 	-- for mpre detail on how the RGB values were determined,
 	-- please refer to code and documents in https://github.com/Newsdee/apple2ntsc
-	
-	type basis_color is array(0 to 3) of unsigned(7 downto 0);
 		
-	-- old FPGA core palette (sedwards 2009)
-	constant basis_r : basis_color := ( X"88", X"38", X"07", X"38" );
-	constant basis_g : basis_color := ( X"22", X"24", X"67", X"52" );
-	constant basis_b : basis_color := ( X"2C", X"A0", X"2C", X"07" );
-
 	constant WHITE: unsigned(7 downto 0) := X"FF";
 	constant WHITE_NTSC: unsigned(7 downto 0) := X"F1";
 	
@@ -84,12 +83,146 @@ architecture rtl of vga_controller is
 
 	signal vbl_delayed : std_logic;
 	signal de_delayed : std_logic_vector(17 downto 0);
+			
+  -- Palette signals
+  signal color_addr    : unsigned(1 downto 0);
+  signal palette_index : unsigned(3 downto 0);
+  signal palette_rgb_in : unsigned(23 downto 0);
+  
+  -- temporary buffer used for downloads
+  signal BUFFER_COL0 : unsigned(23 downto 0) := X"200820";
+  signal BUFFER_COL1 : unsigned(23 downto 0) := X"802222";
+  signal BUFFER_COL2 : unsigned(23 downto 0) := X"222280";
+  signal BUFFER_COL3 : unsigned(23 downto 0) := X"490080";
+  signal BUFFER_COL4 : unsigned(23 downto 0) := X"275412";  -- Dk Green
+  signal BUFFER_COL5 : unsigned(23 downto 0) := X"636363";  -- gray 1
+  signal BUFFER_COL6 : unsigned(23 downto 0) := X"4063ff";  -- Med Blue
+  signal BUFFER_COL7 : unsigned(23 downto 0) := X"4adbff";  -- light blue
+  signal BUFFER_COL8 : unsigned(23 downto 0) := X"7B4513";
+  signal BUFFER_COL9 : unsigned(23 downto 0) := X"FF8C00";
+  signal BUFFER_COL10 : unsigned(23 downto 0):= X"818181";
+  signal BUFFER_COL11 : unsigned(23 downto 0):= X"f87efc"; -- pink
+  signal BUFFER_COL12 : unsigned(23 downto 0):= X"22FF22";
+  signal BUFFER_COL13 : unsigned(23 downto 0):= X"FFFF22";
+  signal BUFFER_COL14 : unsigned(23 downto 0):= X"ADFFF1";
+  signal BUFFER_COL15 : unsigned(23 downto 0):= X"F0F0F0";
+
+  signal CURRENT_COL0 : unsigned(23 downto 0);
+  signal CURRENT_COL1 : unsigned(23 downto 0);
+  signal CURRENT_COL2 : unsigned(23 downto 0);
+  signal CURRENT_COL3 : unsigned(23 downto 0);
+  signal CURRENT_COL4 : unsigned(23 downto 0);
+  signal CURRENT_COL5 : unsigned(23 downto 0);
+  signal CURRENT_COL6 : unsigned(23 downto 0);
+  signal CURRENT_COL7 : unsigned(23 downto 0);
+  signal CURRENT_COL8 : unsigned(23 downto 0);
+  signal CURRENT_COL9 : unsigned(23 downto 0);
+  signal CURRENT_COL10 : unsigned(23 downto 0);
+  signal CURRENT_COL11 : unsigned(23 downto 0);
+  signal CURRENT_COL12 : unsigned(23 downto 0);
+  signal CURRENT_COL13 : unsigned(23 downto 0);
+  signal CURRENT_COL14 : unsigned(23 downto 0);
+  signal CURRENT_COL15 : unsigned(23 downto 0);
 
 begin
+
+-- palette processing
+process (CLK_14M)		
+begin
+    if rising_edge(CLK_14M) then
+    
+		-- whether to update palette RAM; ioctl_index must be consistent with declaration in MiSTer config string
+		if ioctl_download = '1' and ioctl_index = "00000010"  then
+			-- palette is downloading so preserve values of registers
+			CURRENT_COL0 <= CURRENT_COL0;
+			CURRENT_COL1 <= CURRENT_COL1;
+			CURRENT_COL2 <= CURRENT_COL2;
+			CURRENT_COL3 <= CURRENT_COL3;
+			CURRENT_COL4 <= CURRENT_COL4;
+			CURRENT_COL5 <= CURRENT_COL5;
+			CURRENT_COL6 <= CURRENT_COL6;
+			CURRENT_COL7 <= CURRENT_COL7;
+			CURRENT_COL8 <= CURRENT_COL8;
+			CURRENT_COL9 <= CURRENT_COL9;
+			CURRENT_COL10 <= CURRENT_COL10;
+			CURRENT_COL11 <= CURRENT_COL11;
+			CURRENT_COL12 <= CURRENT_COL12;
+			CURRENT_COL13 <= CURRENT_COL13;
+			CURRENT_COL14 <= CURRENT_COL14;
+			CURRENT_COL15 <= CURRENT_COL15;
+			-- write to proper index with downloading palette
+			-- but first check if the new data is ready
+			if ioctl_wr = '1' then
+				
+				ioctl_wait <= '1';
+				
+				case color_addr is
+					when "00" => palette_rgb_in <= unsigned(ioctl_data) & palette_rgb_in(15 downto 0) ;
+					when "01" => palette_rgb_in <= palette_rgb_in(23 downto 16) & unsigned(ioctl_data) & palette_rgb_in(7 downto 0) ;
+					when "10" => palette_rgb_in <= palette_rgb_in(23 downto 8) & unsigned(ioctl_data) ;
+					when "11" => palette_rgb_in <= palette_rgb_in(23 downto 8) & unsigned(ioctl_data) ;
+				end case;
+				case palette_index is
+					when "0000" => BUFFER_COL0 <= palette_rgb_in;
+					when "0001" => BUFFER_COL1 <= palette_rgb_in;
+					when "0010" => BUFFER_COL2 <= palette_rgb_in;
+					when "0011" => BUFFER_COL3 <= palette_rgb_in;
+					when "0100" => BUFFER_COL4 <= palette_rgb_in;
+					when "0101" => BUFFER_COL5 <= palette_rgb_in;
+					when "0110" => BUFFER_COL6 <= palette_rgb_in;
+					when "0111" => BUFFER_COL7 <= palette_rgb_in;
+					when "1000" => BUFFER_COL8 <= palette_rgb_in;
+					when "1001" => BUFFER_COL9 <= palette_rgb_in;
+					when "1010" => BUFFER_COL10 <= palette_rgb_in;
+					when "1011" => BUFFER_COL11 <= palette_rgb_in;
+					when "1100" => BUFFER_COL12 <= palette_rgb_in;
+					when "1101" => BUFFER_COL13 <= palette_rgb_in;
+					when "1110" => BUFFER_COL14 <= palette_rgb_in;
+					when "1111" => BUFFER_COL15 <= palette_rgb_in;
+				end case;
+				if color_addr < "11" then
+					color_addr <= color_addr + 1;
+				else
+					color_addr <= "00";
+					palette_index <= palette_index + 1;					
+				end if;
+				ioctl_wait  <=  '0';
+				
+			end if;
+			
+		else
+				-- palette is ready, reset vars and update registers
+				palette_index <= "0000";
+				color_addr <= "00";
+				palette_rgb_in <= "000000000000000000000000";
+				
+				CURRENT_COL0 <= BUFFER_COL0;
+				CURRENT_COL1 <= BUFFER_COL1;
+				CURRENT_COL2 <= BUFFER_COL2;
+				CURRENT_COL3 <= BUFFER_COL3;
+				CURRENT_COL4 <= BUFFER_COL4;
+				CURRENT_COL5 <= BUFFER_COL5;
+				CURRENT_COL6 <= BUFFER_COL6;
+				CURRENT_COL7 <= BUFFER_COL7;
+				CURRENT_COL8 <= BUFFER_COL8;
+				CURRENT_COL9 <= BUFFER_COL9;
+				CURRENT_COL10 <= BUFFER_COL10;
+				CURRENT_COL11 <= BUFFER_COL11;
+				CURRENT_COL12 <= BUFFER_COL12;
+				CURRENT_COL13 <= BUFFER_COL13;
+				CURRENT_COL14 <= BUFFER_COL14;
+				CURRENT_COL15 <= BUFFER_COL15;
+		end if;
+		
+    
+	 end if;
+end process;
+
+
 
 process (CLK_14M)
 begin
-	if rising_edge(CLK_14M) then
+    if rising_edge(CLK_14M) then
 		if last_hbl = '1' and HBL = '0' then  -- Falling edge
 			hcount <= (others => '0');
 			vbl_delayed <= VBL;
@@ -134,7 +267,16 @@ begin
 		
 		-- alternate background for monochrome modes
 		case SCREEN_MODE is 
-			when "00" => r := X"00"; g := X"00"; b := X"00"; -- color mode background
+			when "00" => 
+				-- color mode background
+				if COLOR_PALETTE = "11" then
+					-- use custom palette
+					r := CURRENT_COL0(23 downto 16); g := CURRENT_COL0(15 downto 8); b := CURRENT_COL0(7 downto 0); -- black
+				else
+					-- or black for the rest
+					r := X"00"; g := X"00"; b := X"00"; 
+					
+				end if;
 			when "01" => r := X"00"; g := X"00"; b := X"00"; -- B&W mode background
 			when "10" => r := X"00"; g := X"0F"; b := X"01"; -- green mode background color
 			when "11" => r := X"20"; g := X"08"; b := X"01"; -- amber mode background color
@@ -148,8 +290,13 @@ begin
 					when "00" => 
 						-- white (color mode)
 						if COLOR_PALETTE = "00" then
+							-- NTSC palette
 							r := WHITE_NTSC; g := WHITE_NTSC; b := WHITE_NTSC;
+						elsif COLOR_PALETTE = "11" then
+							-- custom palette
+							r := CURRENT_COL15(23 downto 16); g := CURRENT_COL15(15 downto 8); b := CURRENT_COL15(7 downto 0); -- white
 						else
+							-- Apple IIgs and AppleWin palettes
 							r := WHITE; g := WHITE; b := WHITE;
 						end if;						
 					when "01" => r := WHITE; g := WHITE; b := WHITE; -- white (B&W mode)
@@ -229,57 +376,29 @@ begin
 					when "1011"      => r := X"DC"; g := X"CD"; b := X"16"; -- yellow
 					when "1101"      => r := X"5D"; g := X"F7"; b := X"84"; -- aquamarine
 					when "1111"      => r := WHITE; g := WHITE; b := WHITE; -- white
-				end case;			
-			else
-			
-				-- Handpicked colors by visual comparison of all palettes vs. a //c PAL display
-				-- PAL //c displays do not have artifacto color and produce B&W images,
-				-- so this is an attempt to make color work with composite video-out on such displays
-				-- (NOTE: commented-out values will fallback to the apple2fpga method)
-				case shift_color is
-					when "0000"      => r := X"00"; g := X"00"; b := X"00";    --  0 - black   
-					-- when "0010"      => r := X"93"; g := X"0B"; b := X"7C"; --  1 - magenta    (apple2fpga)
-					-- when "0100"      => r := X"1F"; g := X"35"; b := X"D3"; --  2 - dark blue  (apple2fpga)
-					when "0110"      => r := X"DC"; g := X"43"; b := X"E1";    --  3 - purple     (Apple IIgs)
-					--when "1000"      => r := X"00"; g := X"76"; b := X"0C";  --  4 - dark green (apple2fpga)
-					when "0101"      => r := X"7E"; g := X"7E"; b := X"7E";    --  5 - gray 1     (AppleWin)
-					when "1100"      => r := X"36"; g := X"92"; b := X"FF";    --  6 - med blue   (IIe)
-					when "1110"      => r := X"7A"; g := X"B3"; b := X"FF";    --  7 - light blue (Apple IIgs)
-					-- when "0001"      => r := X"62"; g := X"4C"; b := X"00"; --  8 - brown      (apple2fpga)
-					when "0011"      => r := X"F9"; g := X"56"; b := X"1D";    --  9 - orange     (Apple IIgs)
-					when "1010"      => r := X"7E"; g := X"7E"; b := X"7E";    -- 10 - gray 2     (AppleWin)
-					when "0111"      => r := X"FB"; g := X"A5"; b := X"93";    -- 11 - pink       (Apple IIgs)
-					when "1001"      => r := X"40"; g := X"DE"; b := X"00";    -- 12 - green      (Apple IIgs)
-					when "1011"      => r := X"DC"; g := X"CD"; b := X"16";    -- 13 - Yellow     (AppleWin)
-					when "1101"      => r := X"67"; g := X"FC"; b := X"A4";    -- 14 - aquamarine (Apple IIgs)
-					when "1111"      => r := WHITE; g := WHITE; b := WHITE;    -- 15 - white
-					
-					when "0010"|"0100"|"1000"|"0001" =>
-								
-						-- original implementaiton of Apple II FPGA core (sedwards, 2009)
-						-- Tint of adjacent pixels is consistent : display the color
-						if shift_reg(3) = '1' then
-							r := r + basis_r(to_integer(hcount + 1));
-							g := g + basis_g(to_integer(hcount + 1));
-							b := b + basis_b(to_integer(hcount + 1));
-						end if;
-						if shift_reg(4) = '1' then
-							r := r + basis_r(to_integer(hcount + 2));
-							g := g + basis_g(to_integer(hcount + 2));
-							b := b + basis_b(to_integer(hcount + 2));
-						end if;
-						if shift_reg(1) = '1' then
-							r := r + basis_r(to_integer(hcount + 3));
-							g := g + basis_g(to_integer(hcount + 3));
-							b := b + basis_b(to_integer(hcount + 3));
-						end if;
-						if shift_reg(2) = '1' then
-							r := r + basis_r(to_integer(hcount));
-							g := g + basis_g(to_integer(hcount));
-							b := b + basis_b(to_integer(hcount));
-						end if;
-					
 				end case;
+			else
+					
+				-- Use custom palette
+					case shift_color is
+						when "0000"      =>  r := CURRENT_COL0(23 downto 16); g := CURRENT_COL0(15 downto 8); b := CURRENT_COL0(7 downto 0);  --black
+						when "0010"      =>  r := CURRENT_COL1(23 downto 16); g := CURRENT_COL1(15 downto 8); b := CURRENT_COL1(7 downto 0);  --magenta
+						when "0100"      =>  r := CURRENT_COL2(23 downto 16); g := CURRENT_COL2(15 downto 8); b := CURRENT_COL2(7 downto 0);  --purple
+						when "0110"      =>  r := CURRENT_COL3(23 downto 16); g := CURRENT_COL3(15 downto 8); b := CURRENT_COL3(7 downto 0);  -- purple
+						when "1000"      =>  r := CURRENT_COL4(23 downto 16); g := CURRENT_COL4(15 downto 8); b := CURRENT_COL4(7 downto 0);  -- dark green
+						when "1010"      =>  r := CURRENT_COL5(23 downto 16); g := CURRENT_COL5(15 downto 8); b := CURRENT_COL5(7 downto 0); -- gray 1
+						when "1100"      =>  r := CURRENT_COL6(23 downto 16); g := CURRENT_COL6(15 downto 8); b := CURRENT_COL6(7 downto 0);  -- med blue
+						when "1110"      =>  r := CURRENT_COL7(23 downto 16); g := CURRENT_COL7(15 downto 8); b := CURRENT_COL7(7 downto 0);  -- light blue
+						when "0001"      =>  r := CURRENT_COL8(23 downto 16); g := CURRENT_COL8(15 downto 8); b := CURRENT_COL8(7 downto 0);  -- brown   
+						when "0011"      =>  r := CURRENT_COL9(23 downto 16); g := CURRENT_COL9(15 downto 8); b := CURRENT_COL9(7 downto 0);   -- orange  
+						when "0101"      =>  r := CURRENT_COL10(23 downto 16); g := CURRENT_COL10(15 downto 8); b := CURRENT_COL10(7 downto 0);  -- gray 2
+						when "0111"      =>  r := CURRENT_COL11(23 downto 16); g := CURRENT_COL11(15 downto 8); b := CURRENT_COL11(7 downto 0); -- pink
+						when "1001"      =>  r := CURRENT_COL12(23 downto 16); g := CURRENT_COL12(15 downto 8); b := CURRENT_COL12(7 downto 0); -- green
+						when "1011"      =>  r := CURRENT_COL13(23 downto 16); g := CURRENT_COL13(15 downto 8); b := CURRENT_COL13(7 downto 0); -- yellow
+						when "1101"      =>  r := CURRENT_COL14(23 downto 16); g := CURRENT_COL14(15 downto 8); b := CURRENT_COL14(7 downto 0); -- aquamarine
+						when "1111"      =>  r := CURRENT_COL15(23 downto 16); g := CURRENT_COL15(15 downto 8); b := CURRENT_COL15(7 downto 0); -- white
+					end case;	
+					
 			end if;
 		else
 		 
@@ -290,13 +409,20 @@ begin
 					-- white
 					if COLOR_PALETTE = "00" then
 						r := WHITE_NTSC; g := WHITE_NTSC; b := WHITE_NTSC;
+					elsif COLOR_PALETTE = "11" then
+						-- custom palette
+						r := CURRENT_COL15(23 downto 16); g := CURRENT_COL15(15 downto 8); b := CURRENT_COL15(7 downto 0); -- white
 					else
 						r := WHITE; g := WHITE; b := WHITE;
 					end if;
 				
 				-- gray - we use the darkest gray of all the palettes to avoid it being too prominent
-				when "01" | "10" => r := X"63"; g := X"63"; b := X"63";
-					
+				when "01" | "10" => 
+					if COLOR_PALETTE = "11" then
+						 r := CURRENT_COL5(23 downto 16); g := CURRENT_COL5(15 downto 8); b := CURRENT_COL5(7 downto 0); -- gray 1 (darker)
+					else
+						r := X"63"; g := X"63"; b := X"63";
+					end if;
 				-- black
 				when others      => r := X"00"; g := X"00"; b := X"00";
 			end case;
