@@ -224,6 +224,8 @@ begin
   -- PS/2 scancode to Keyboard ROM address translation
   rom_addr <= '0' & caplock & junction_code(6 downto 0) & not ctrl & not shift;
 
+  -- the following junction codes correspond to the locations in the Apple II keybpard matrix
+  -- see "Keyboard Matrix A2e", drawing number 699-00760C;  decimal values converted to hex (e.g. CR -> 66 -> 0x42)
   with latched_ext & latched_code select
     junction_code <=
      X"00" when '0'&X"76", -- Escape ("esc" key)
@@ -309,7 +311,8 @@ begin
      X"49" when '0'&X"7b", -- KP -
      X"4A" when '1'&X"5a", -- KP return
 --     X"4B" when X"", -- KP ,
-     X"4E" when '0'&X"66", -- KP del (backspace - mapped to left)
+     X"4C" when '1'&X"71", -- Del key - mapped to character 127 ("rub" / "delete" - shows as a square cursor characters)
+	 X"4E" when '0'&X"66", -- KP del (backspace - mapped to left)
      X"4D" when '1'&X"72", -- down arrow
      X"4E" when '1'&X"6b", -- left arrow
      X"4F" when '1'&X"74", -- right arrow
