@@ -99,7 +99,7 @@ port (
 
 	DISK_READY     : in  std_logic_vector(1 downto 0);
 
-	DISK_SOUND	   : in std_logic;
+
 	 
 	-- HDD control
 	HDD_SECTOR     : out unsigned(15 downto 0);
@@ -205,8 +205,6 @@ architecture arch of apple2_top is
 
   signal a_ram: unsigned(17 downto 0);
   
-  signal speaker_a2: std_logic;
-  signal speaker_floppy: std_logic;
   signal psg_audio_l : unsigned(9 downto 0);
   signal psg_audio_r : unsigned(9 downto 0);
   signal audio       : unsigned(9 downto 0);
@@ -336,7 +334,7 @@ begin
     ioctl_download => ioctl_download,
     ioctl_wr       => ioctl_wr,
 	 
-    speaker        => speaker_a2
+    speaker        => audio(7)
     );
 
   tv : entity work.vga_controller port map (
@@ -411,11 +409,7 @@ begin
     TRACK2_DO      => TRACK2_DO,
     TRACK2_DI      => TRACK2_DI,
     TRACK2_WE      => TRACK2_WE,
-    TRACK2_BUSY    => TRACK2_BUSY,
-	
-	-- floppy sound emulation
-	SPEAKER_I	   => speaker_a2,
-	SPEAKER_O      => speaker_floppy
+    TRACK2_BUSY    => TRACK2_BUSY
     );
 	 
   hdd : entity work.hdd port map (
@@ -498,10 +492,9 @@ begin
 	  RTC             => RTC
 	  );
 
-  audio(6) <= speaker_floppy when DISK_SOUND = '1' else '0'; 
-  audio(7) <= speaker_a2 when DISK_SOUND = '0' else speaker_floppy;
-  
-  audio(5 downto 0) <= (others => '0');
+
+
+  audio(6 downto 0) <= (others => '0');
   audio(9 downto 8) <= (others => '0');
   AUDIO_R <= std_logic_vector(psg_audio_r + audio);
   AUDIO_L <= std_logic_vector(psg_audio_l + audio);

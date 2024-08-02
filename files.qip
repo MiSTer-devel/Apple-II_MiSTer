@@ -25,5 +25,4 @@ set_global_assignment -name VHDL_FILE rtl/video_generator.vhd
 set_global_assignment -name VHDL_FILE rtl/vga_controller.vhd
 set_global_assignment -name VHDL_FILE rtl/apple2.vhd
 set_global_assignment -name VHDL_FILE rtl/apple2_top.vhd
-set_global_assignment -name VERILOG_FILE rtl/floppy_sound.v
 set_global_assignment -name SYSTEMVERILOG_FILE "Apple-II.sv"
