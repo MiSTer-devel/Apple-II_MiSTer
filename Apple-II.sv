@@ -205,7 +205,7 @@ video_freak video_freak
 // 0         1         2         3          4         5         6
 // 01234567890123456789012345678901 23456789012345678901234567890123
 // 0123456789ABCDEFGHIJKLMNOPQRSTUV 0123456789ABCDEFGHIJKLMNOPQRSTUV
-// X   XXXXXXXXXXXXXXXXXXXXXXXX     X
+// X   XXXXXXXXXXXXXXXXXXXXXXXX 
 
 `include "build_id.v" 
 parameter CONF_STR = {
@@ -246,8 +246,6 @@ parameter CONF_STR = {
 	"P3O6,Analog X/Y,Normal,Swapped;",
 	"P3OHI,Paddle as analog,No,X,Y;",
 	"P3-;",	
-	"P3o0,Disk drive sound,Yes,No;",
-	"P3-;",	
 	"-;",
 	"R0,Cold Reset;",
 	"JA,Fire 1,Fire 2;",
@@ -270,7 +268,7 @@ pll pll
 
 /////////////////  HPS  ///////////////////////////
 
-wire [64:0] status;
+wire [31:0] status;
 wire  [1:0] buttons;
 wire        forced_scandoubler;
 wire [21:0] gamma_bus;
@@ -437,7 +435,7 @@ apple2_top apple2_top
 	.AUDIO_L(audio_l),
 	.AUDIO_R(audio_r),
 	.TAPE_IN(tape_adc_act & tape_adc),
-	
+
 	.ps2_key(ps2_key),
 
 	.joy(joyd),
@@ -458,9 +456,7 @@ apple2_top apple2_top
 	.TRACK2_DO (TRACK2_RAM_DO),
 	.TRACK2_WE (TRACK2_RAM_WE),
 	.TRACK2_BUSY (TRACK2_RAM_BUSY),
-	// floppy sound emulation
-	.DISK_SOUND(~status[32]),
-	
+
 	.DISK_READY(DISK_READY),
 	.D1_ACTIVE(D1_ACTIVE),
 	.D2_ACTIVE(D2_ACTIVE),
