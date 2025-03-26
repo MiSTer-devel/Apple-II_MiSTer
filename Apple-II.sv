@@ -280,6 +280,13 @@ wire [15:0] joystick_a0;
 wire  [7:0] paddle_0;
 
 wire [10:0] ps2_key;
+wire [24:0] ps2_mouse;
+
+wire  [8:0] mouse_x;
+wire  [8:0] mouse_y;
+wire  [7:0] mouse_flags;
+wire        mouse_strobe;
+
 
 wire [31:0] sd_lba[3];
 reg   [2:0] sd_rd;
@@ -336,10 +343,14 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.ioctl_index(ioctl_index),
 
 	.ps2_key(ps2_key),
+	.ps2_mouse(ps2_mouse),
 
 	.joystick_0(joystick_0),
 	.joystick_l_analog_0(joystick_a0),
 	.paddle_0(paddle_0),
+
+
+
 	
 	.RTC(RTC)
 
@@ -496,7 +507,14 @@ apple2_top apple2_top
 	.UART_CTS(UART_CTS),
 	.UART_DTR(UART_DTR),
 	.UART_DSR(UART_DSR),
-	.RTC(RTC)
+	.RTC(RTC),
+	
+	.mouse_x({ps2_mouse[4],ps2_mouse[15:8]}),
+	.mouse_y({ps2_mouse[5],ps2_mouse[23:16]}),
+	//.mouse_x({ps2_mouse[4],3'b000,ps2_mouse[15:7]}),
+	//.mouse_y({ps2_mouse[5],3'b000,ps2_mouse[23:15]}),
+	.mouse_button(ps2_mouse[0]),
+	.mouse_strobe(ps2_mouse[24])
 
 );
 

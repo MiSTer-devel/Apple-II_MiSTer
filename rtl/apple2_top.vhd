@@ -122,8 +122,14 @@ port (
 	UART_CTS       :in  std_logic;
 	UART_DTR       :out  std_logic;
 	UART_DSR       :in  std_logic;
-	RTC            :in  std_logic_vector(64 downto 0)
-
+	RTC            :in  std_logic_vector(64 downto 0);
+	
+	
+	mouse_strobe : in std_logic;
+   mouse_x      : in signed(8 downto 0);
+   mouse_y      : in signed(8 downto 0);
+   mouse_button  : in std_logic
+	
 );
 end apple2_top;
 
@@ -187,6 +193,10 @@ architecture arch of apple2_top is
 
   signal CLOCK_DO     : unsigned(7 downto 0);
 
+  signal MOUSE_DO:  unsigned(7 downto 0);
+  signal MOUSE_OE: std_logic;
+  signal mouse_irq_n: std_logic;
+  
   signal we_ram : std_logic;
   signal VIDEO, HBL, VBL : std_logic;
   signal COLOR_LINE : std_logic;
@@ -286,6 +296,8 @@ begin
   ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
 
   PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
+       -- MOUSE_DO when IO_SELECT(5) = '1' or DEVICE_SELECT(5) = '1' else
+        MOUSE_DO when IO_SELECT(5) = '1' or DEVICE_SELECT(5) = '1' else
         CLOCK_DO when IO_SELECT(1) = '1' or DEVICE_SELECT(1) = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
@@ -308,7 +320,7 @@ begin
     aux            => ram_aux,
     PD             => PD,
     CPU_WE         => cpu_we,
-    IRQ_N          => psg_irq_n and ssc_irq_n,
+    IRQ_N          => psg_irq_n and ssc_irq_n and mouse_irq_n,
     NMI_N          => psg_nmi_n,
     ram_we         => we_ram,
     VIDEO          => VIDEO,
@@ -476,6 +488,30 @@ begin
 	IRQ_N 		=> ssc_irq_n
 	);
 
+	
+	 mouse : entity work.applemouse 
+ port map (
+    CLK_14M        => CLK_14M,
+    CLK_2M         => CLK_2M,
+    PHASE_ZERO     => PHASE_ZERO,
+    IO_SELECT      => IO_SELECT(5),
+    IO_STROBE      => IO_STROBE,
+    DEVICE_SELECT  => DEVICE_SELECT(5),
+    RESET          => reset,
+    A              => ADDR,
+    RNW            => not cpu_we,
+    D_IN           => D,
+    D_OUT          => MOUSE_DO,
+    OE             => MOUSE_OE,
+    IRQ_N          => MOUSE_IRQ_N,
+
+    STROBE         => mouse_strobe,
+    X              => mouse_x,
+    Y              => mouse_y,
+    BUTTON         => mouse_button
+  );
+	
+	
 	clock : component clock_card
   port map (
 	  CLK_14M         => CLK_14M,
