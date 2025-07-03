@@ -21,12 +21,14 @@ module clock_card(
     input  [7:0]  DATA_IN,
     output [7:0]  DATA_OUT,
     //output   ROM_EN,
+	 output        OE,
 
     input [64:0]  RTC
 
 
 );
 
+assign OE = ~IO_SELECT_N | ~DEVICE_SELECT_N;
 
 reg [20:0] second_div;
 reg TICK;
