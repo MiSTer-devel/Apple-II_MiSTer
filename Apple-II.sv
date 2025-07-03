@@ -246,7 +246,7 @@ parameter CONF_STR = {
 	"P3,Hardware;",
 	"P3-;",	
 	"P3OST,Slot 4,Mocking board,Mouse,Empty;",
-	"P3OUV,Slot 5,256K,Mocking board,Mouse,Empty;",
+	"P3OUV,Slot 5,Mouse,Mocking board,256K Saturn,Empty;",
 	"P3O6,Analog X/Y,Normal,Swapped;",
 	"P3OHI,Paddle as analog,No,X,Y;",
 	"P3-;",	
@@ -290,7 +290,7 @@ wire  [7:0] mouse_flags;
 wire        mouse_strobe;
 
 wire mouse_4_inslot = status[29:28] == 2'b01;
-wire mouse_5_inslot = status[31:30] == 2'b10;
+wire mouse_5_inslot = status[31:30] == 2'b00;
 wire mb_4_inslot = status[29:28] == 2'b00;
 wire mb_5_inslot = status[31:30] == 2'b01;
 wire saturn_5_inslot = status[31:30] == 2'b10;	
