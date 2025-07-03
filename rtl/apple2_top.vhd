@@ -124,9 +124,9 @@ port (
 	
 	
 	mouse_strobe : in std_logic;
-   mouse_x      : in signed(8 downto 0);
-   mouse_y      : in signed(8 downto 0);
-   mouse_button  : in std_logic;
+	mouse_x      : in signed(8 downto 0);
+	mouse_y      : in signed(8 downto 0);
+	mouse_button  : in std_logic;
 	
 	
 	mouse_4_inslot  : in std_logic;
@@ -134,7 +134,7 @@ port (
 	-- mocking board
 	mb_4_inslot     : in std_logic;
 	mb_5_inslot     : in std_logic;
-   saturn_5_inslot : in std_logic	
+	saturn_5_inslot : in std_logic	
 );
 end apple2_top;
 
@@ -365,7 +365,7 @@ begin
     ioctl_download => ioctl_download,
     ioctl_wr       => ioctl_wr,
 	 
-	 saturn_5_inslot=> saturn_5_inslot,
+    saturn_5_inslot=> saturn_5_inslot,
 	 
     speaker        => audio(7)
     );

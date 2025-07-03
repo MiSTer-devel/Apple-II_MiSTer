@@ -233,7 +233,6 @@ parameter CONF_STR = {
 	"P1-;",	
 	"P2,Audio & Video;",
 	"P2-;",	
-	//"P2O4,Mocking board,Yes,No;",
 	"P2O78,Stereo mix,none,25%,50%,100%;",
 	"P2-;",	
 	"P2OG,Pixel Clock,Double,Normal;",
@@ -517,8 +516,6 @@ apple2_top apple2_top
 	
 	.mouse_x({ps2_mouse[4],ps2_mouse[15:8]}),
 	.mouse_y({ps2_mouse[5],ps2_mouse[23:16]}),
-	//.mouse_x({ps2_mouse[4],3'b000,ps2_mouse[15:7]}),
-	//.mouse_y({ps2_mouse[5],3'b000,ps2_mouse[23:15]}),
 	.mouse_button(ps2_mouse[0]),
 	.mouse_strobe(ps2_mouse[24]),
 
