@@ -25,6 +25,8 @@ entity MOCKINGBOARD is
     I_DATA            : in std_logic_vector(7 downto 0);
     O_DATA            : out std_logic_vector(7 downto 0);
     
+    OE                : out std_logic;
+
     I_RW_L            : in std_logic;
     O_IRQ_L           : out std_logic;
     O_NMI_L           : out std_logic;
@@ -94,6 +96,7 @@ entity MOCKINGBOARD is
   end component;
 
 begin
+  OE <= not I_IOSEL_L;
 
   O_DATA <= o_data_l when I_ADDR(7) = '0' else o_data_r;
   O_IRQ_L <= not lirq or not I_ENA_H;

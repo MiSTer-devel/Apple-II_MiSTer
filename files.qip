@@ -11,6 +11,15 @@ set_global_assignment -name VERILOG_FILE rtl/ssc/uart_6551.v
 set_global_assignment -name VERILOG_FILE rtl/ssc/6551rx.v
 set_global_assignment -name VERILOG_FILE rtl/ssc/6551tx.v
 set_global_assignment -name VHDL_FILE rtl/ssc/ssc_rom.vhd
+set_global_assignment -name VHDL_FILE rtl/mouse/applemouse.vhd
+set_global_assignment -name VHDL_FILE rtl/mouse/pia6821.vhd
+set_global_assignment -name VHDL_FILE rtl/mouse/applemouse_rom.vhd
+set_global_assignment -name VHDL_FILE rtl/mouse/applemouse_mcu_rom.vhd
+set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jt6805.v
+set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jt6805_regs.v
+set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jt6805_ctrl.v
+set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jt6805_alu.v
+set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jtframe_6805mcu.v
 set_global_assignment -name VERILOG_FILE rtl/clock_card.v
 set_global_assignment -name VERILOG_FILE rtl/rom.v
 set_global_assignment -name VHDL_FILE rtl/spram.vhd

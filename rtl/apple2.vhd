@@ -59,6 +59,9 @@ entity apple2 is
     ioctl_index   : in  std_logic_vector(7 downto 0);
     ioctl_download: in  std_logic;
     ioctl_wr   : in  std_logic;
+	 
+    saturn_5_inslot : in std_logic;
+
 
     speaker        : out std_logic              -- One-bit speaker output
     );
@@ -189,8 +192,8 @@ begin
       card_ram_rd => card_ram_rd
     );
     
-    ram_card_read  <= ROM_SELECT and card_ram_rd;
-    ram_card_write <= ROM_SELECT and card_ram_we;
+    ram_card_read  <= ROM_SELECT and card_ram_rd and saturn_5_inslot;
+    ram_card_write <= ROM_SELECT and card_ram_we and saturn_5_inslot;
 	 ram_card_sel   <= ram_card_write  when we = '1' else ram_card_read;
   
   RAM_data_latch : process (CLK_14M)

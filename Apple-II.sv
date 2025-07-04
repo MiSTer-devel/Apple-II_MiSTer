@@ -233,7 +233,6 @@ parameter CONF_STR = {
 	"P1-;",	
 	"P2,Audio & Video;",
 	"P2-;",	
-	"P2O4,Mocking board,Yes,No;",
 	"P2O78,Stereo mix,none,25%,50%,100%;",
 	"P2-;",	
 	"P2OG,Pixel Clock,Double,Normal;",
@@ -245,6 +244,8 @@ parameter CONF_STR = {
 	"P2-;",	
 	"P3,Hardware;",
 	"P3-;",	
+	"P3OST,Slot 4,Mocking board,Mouse,Empty;",
+	"P3OUV,Slot 5,Mouse,Mocking board,256K Saturn,Empty;",
 	"P3O6,Analog X/Y,Normal,Swapped;",
 	"P3OHI,Paddle as analog,No,X,Y;",
 	"P3-;",	
@@ -280,6 +281,19 @@ wire [15:0] joystick_a0;
 wire  [7:0] paddle_0;
 
 wire [10:0] ps2_key;
+wire [24:0] ps2_mouse;
+
+wire  [8:0] mouse_x;
+wire  [8:0] mouse_y;
+wire  [7:0] mouse_flags;
+wire        mouse_strobe;
+
+wire mouse_4_inslot = status[29:28] == 2'b01;
+wire mouse_5_inslot = status[31:30] == 2'b00;
+wire mb_4_inslot = status[29:28] == 2'b00;
+wire mb_5_inslot = status[31:30] == 2'b01;
+wire saturn_5_inslot = status[31:30] == 2'b10;	
+
 
 wire [31:0] sd_lba[3];
 reg   [2:0] sd_rd;
@@ -336,10 +350,14 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.ioctl_index(ioctl_index),
 
 	.ps2_key(ps2_key),
+	.ps2_mouse(ps2_mouse),
 
 	.joystick_0(joystick_0),
 	.joystick_l_analog_0(joystick_a0),
 	.paddle_0(paddle_0),
+
+
+
 	
 	.RTC(RTC)
 
@@ -442,8 +460,6 @@ apple2_top apple2_top
 
 	.joy(joyd),
 	.joy_an(joya),
-
-	.mb_enabled(~status[4]),
 	
 	.TRACK1(TRACK1),
 	.TRACK1_ADDR(TRACK1_RAM_ADDR),
@@ -496,8 +512,18 @@ apple2_top apple2_top
 	.UART_CTS(UART_CTS),
 	.UART_DTR(UART_DTR),
 	.UART_DSR(UART_DSR),
-	.RTC(RTC)
+	.RTC(RTC),
+	
+	.mouse_x({ps2_mouse[4],ps2_mouse[15:8]}),
+	.mouse_y({ps2_mouse[5],ps2_mouse[23:16]}),
+	.mouse_button(ps2_mouse[0]),
+	.mouse_strobe(ps2_mouse[24]),
 
+	.mouse_4_inslot(mouse_4_inslot),
+	.mouse_5_inslot(mouse_5_inslot),
+	.mb_4_inslot(mb_4_inslot),
+	.mb_5_inslot(mb_5_inslot),
+	.saturn_5_inslot(saturn_5_inslot)
 );
 
 wire [2:0] scale = status[11:9];

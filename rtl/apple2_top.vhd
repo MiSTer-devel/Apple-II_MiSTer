@@ -71,8 +71,6 @@ port (
 	joy            : in  std_logic_vector(5 downto 0);
 	joy_an         : in  std_logic_vector(15 downto 0);
 
-	-- mocking board
-	mb_enabled 		: in std_logic;
 	
 	-- disk control
 	TRACK1         : out unsigned( 5 downto 0); -- Current track (0-34)
@@ -122,8 +120,21 @@ port (
 	UART_CTS       :in  std_logic;
 	UART_DTR       :out  std_logic;
 	UART_DSR       :in  std_logic;
-	RTC            :in  std_logic_vector(64 downto 0)
-
+	RTC            :in  std_logic_vector(64 downto 0);
+	
+	
+	mouse_strobe : in std_logic;
+	mouse_x      : in signed(8 downto 0);
+	mouse_y      : in signed(8 downto 0);
+	mouse_button  : in std_logic;
+	
+	
+	mouse_4_inslot  : in std_logic;
+	mouse_5_inslot  : in std_logic;
+	-- mocking board
+	mb_4_inslot     : in std_logic;
+	mb_5_inslot     : in std_logic;
+	saturn_5_inslot : in std_logic	
 );
 end apple2_top;
 
@@ -165,6 +176,7 @@ architecture arch of apple2_top is
         ADDRESS         : std_logic_vector(15 downto 0);
         RW_N            : in std_logic;
         RESET           : in std_logic;
+		  OE              : out std_logic;
         DATA_IN         : in std_logic_vector(7 downto 0);
         DATA_OUT        : out std_logic_vector(7 downto 0);
         RTC             : in std_logic_vector(64 downto 0));
@@ -177,16 +189,26 @@ architecture arch of apple2_top is
 
   signal ADDR : unsigned(15 downto 0);
   signal D, PD: unsigned(7 downto 0);
-  signal DISK_DO, PSG_DO, HDD_DO : unsigned(7 downto 0);
+  signal DISK_DO, HDD_DO : unsigned(7 downto 0);
+  signal PSG_4_DO, PSG_5_DO : unsigned(7 downto 0);
   signal cpu_we : std_logic;
-  signal psg_irq_n, psg_nmi_n : std_logic;
+  signal psg_4_irq_n, psg_4_nmi_n , psg_4_oe: std_logic;
+  signal psg_5_irq_n, psg_5_nmi_n , psg_5_oe: std_logic;
   signal ssc_irq_n: std_logic;
 
   signal SSC_ROM_EN : std_logic;
   signal SSC_DO     : unsigned(7 downto 0);
 
-  signal CLOCK_DO     : unsigned(7 downto 0);
+  signal CLOCK_DO   : unsigned(7 downto 0);
+  signal CLOCK_OE   : std_logic;
 
+  signal MOUSE_4_DO:  unsigned(7 downto 0);
+  signal MOUSE_4_OE: std_logic;
+  signal mouse_4_irq_n: std_logic;
+  signal MOUSE_5_DO:  unsigned(7 downto 0);
+  signal MOUSE_5_OE: std_logic;
+  signal mouse_5_irq_n: std_logic;
+  
   signal we_ram : std_logic;
   signal VIDEO, HBL, VBL : std_logic;
   signal COLOR_LINE : std_logic;
@@ -205,8 +227,13 @@ architecture arch of apple2_top is
 
   signal a_ram: unsigned(17 downto 0);
   
-  signal psg_audio_l : unsigned(9 downto 0);
-  signal psg_audio_r : unsigned(9 downto 0);
+  signal psg_4_audio_l : unsigned(9 downto 0);
+  signal psg_4_audio_r : unsigned(9 downto 0);
+
+  signal psg_5_audio_l : unsigned(9 downto 0);
+  signal psg_5_audio_r : unsigned(9 downto 0);
+
+  
   signal audio       : unsigned(9 downto 0);
 
   signal joyx       : std_logic;
@@ -234,14 +261,15 @@ begin
         flash_clk <= flash_clk + 1;
       end if;
     end if;
-  end process;
+  end process;		
+  
   
   -- Paddle buttons
   -- GAMEPORT input bits:
   --  7    6    5    4    3   2   1    0
-  -- pdl3 pdl2 pdl1 pdl0 pb3 pb2 pb1 casette
+  -- pdl3 pdl2 pdl1 pdlCLOCK_OE0 pb3 pb2 pb1 casette
   GAMEPORT <=  "00" & joyy & joyx & "0" & (joy(5) or closed_apple)& (joy(4) or open_apple) & TAPE_IN;
-  
+
   process(CLK_14M, pdl_strobe)
     variable cx, cy : integer range -100 to 5800 := 0;
   begin
@@ -285,8 +313,11 @@ begin
   ram_addr <= std_logic_vector(a_ram) when reset_cold = '0' else std_logic_vector(to_unsigned(1012,ram_addr'length)); -- $3F4
   ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
 
-  PD <= PSG_DO when IO_SELECT(4) = '1' and mb_enabled = '1' else
-        CLOCK_DO when IO_SELECT(1) = '1' or DEVICE_SELECT(1) = '1' else
+  PD <= PSG_4_DO when psg_4_oe = '1'  else
+        PSG_5_DO when psg_5_oe = '1'  else
+        MOUSE_4_DO when MOUSE_4_OE = '1' else
+        MOUSE_5_DO when MOUSE_5_OE = '1' else
+        CLOCK_DO when CLOCK_OE = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
@@ -308,8 +339,8 @@ begin
     aux            => ram_aux,
     PD             => PD,
     CPU_WE         => cpu_we,
-    IRQ_N          => psg_irq_n and ssc_irq_n,
-    NMI_N          => psg_nmi_n,
+    IRQ_N          => psg_4_irq_n and psg_5_irq_n and ssc_irq_n and mouse_4_irq_n and mouse_5_irq_n,
+    NMI_N          => psg_4_nmi_n and psg_5_nmi_n,
     ram_we         => we_ram,
     VIDEO          => VIDEO,
     PALMODE        => PALMODE,
@@ -333,6 +364,8 @@ begin
     ioctl_index    => ioctl_index,
     ioctl_download => ioctl_download,
     ioctl_wr       => ioctl_wr,
+	 
+    saturn_5_inslot=> saturn_5_inslot,
 	 
     speaker        => audio(7)
     );
@@ -432,24 +465,47 @@ begin
     ram_we         => HDD_RAM_WE
     );
 
-  mb : work.mockingboard
+  mb_4 : work.mockingboard
     port map (
       CLK_14M    => CLK_14M,
       PHASE_ZERO => PHASE_ZERO,
       PHASE_ZERO_R => PHASE_ZERO_R,
       PHASE_ZERO_F => PHASE_ZERO_F,
       I_RESET_L => not reset,
-      I_ENA_H   => mb_enabled,
+      I_ENA_H   => mb_4_inslot,
 
       I_ADDR    => std_logic_vector(ADDR)(7 downto 0),
       I_DATA    => std_logic_vector(D),
-      unsigned(O_DATA) => PSG_DO,
+      unsigned(O_DATA) => PSG_4_DO,
       I_RW_L    => not cpu_we,
-      I_IOSEL_L => not IO_SELECT(4),
-      O_IRQ_L   => psg_irq_n,
-      O_NMI_L   => psg_nmi_n,
-      unsigned(O_AUDIO_L) => psg_audio_l,
-      unsigned(O_AUDIO_R) => psg_audio_r
+      I_IOSEL_L => not IO_SELECT(4) or NOT mb_4_inslot,
+		OE        => psg_4_oe,
+		
+      O_IRQ_L   => psg_4_irq_n,
+      O_NMI_L   => psg_4_nmi_n,
+      unsigned(O_AUDIO_L) => psg_4_audio_l,
+      unsigned(O_AUDIO_R) => psg_4_audio_r
+      );
+  mb_5 : work.mockingboard
+    port map (
+      CLK_14M    => CLK_14M,
+      PHASE_ZERO => PHASE_ZERO,
+      PHASE_ZERO_R => PHASE_ZERO_R,
+      PHASE_ZERO_F => PHASE_ZERO_F,
+      I_RESET_L => not reset,
+      I_ENA_H   => mb_5_inslot,
+
+      I_ADDR    => std_logic_vector(ADDR)(7 downto 0),
+      I_DATA    => std_logic_vector(D),
+      unsigned(O_DATA) => PSG_5_DO,
+      I_RW_L    => not cpu_we,
+      I_IOSEL_L => not IO_SELECT(5) or NOT mb_5_inslot,
+		OE        => psg_5_oe,
+		
+      O_IRQ_L   => psg_5_irq_n,
+      O_NMI_L   => psg_5_nmi_n,
+      unsigned(O_AUDIO_L) => psg_5_audio_l,
+      unsigned(O_AUDIO_R) => psg_5_audio_r
       );
 
    ssc : component superserial
@@ -476,6 +532,53 @@ begin
 	IRQ_N 		=> ssc_irq_n
 	);
 
+	
+
+
+ mouse_4 : entity work.applemouse 
+ port map (
+    CLK_14M        => CLK_14M,
+    CLK_2M         => CLK_2M,
+    PHASE_ZERO     => PHASE_ZERO,
+    IO_SELECT      => IO_SELECT(4) and mouse_4_inslot,
+    IO_STROBE      => IO_STROBE,
+    DEVICE_SELECT  => DEVICE_SELECT(4) and mouse_4_inslot,
+    RESET          => reset,
+    A              => ADDR,
+    RNW            => not cpu_we,
+    D_IN           => D,
+    D_OUT          => MOUSE_4_DO,
+    OE             => MOUSE_4_OE,
+    IRQ_N          => MOUSE_4_IRQ_N,
+
+    STROBE         => mouse_strobe,
+    X              => mouse_x,
+    Y              => mouse_y,
+    BUTTON         => mouse_button
+  );
+ mouse_5 : entity work.applemouse 
+ port map (
+    CLK_14M        => CLK_14M,
+    CLK_2M         => CLK_2M,
+    PHASE_ZERO     => PHASE_ZERO,
+    IO_SELECT      => IO_SELECT(5) and mouse_5_inslot,
+    IO_STROBE      => IO_STROBE,
+    DEVICE_SELECT  => DEVICE_SELECT(5) and mouse_5_inslot,
+    RESET          => reset,
+    A              => ADDR,
+    RNW            => not cpu_we,
+    D_IN           => D,
+    D_OUT          => MOUSE_5_DO,
+    OE             => MOUSE_5_OE,
+    IRQ_N          => MOUSE_5_IRQ_N,
+
+    STROBE         => mouse_strobe,
+    X              => mouse_x,
+    Y              => mouse_y,
+    BUTTON         => mouse_button
+  );
+	
+	
 	clock : component clock_card
   port map (
 	  CLK_14M         => CLK_14M,
@@ -489,6 +592,7 @@ begin
 	  RESET           => reset,
 	  DATA_IN         => std_logic_vector(D),
 	  unsigned(DATA_OUT) => CLOCK_DO,
+	  OE              => CLOCK_OE,
 	  RTC             => RTC
 	  );
 
@@ -496,7 +600,7 @@ begin
 
   audio(6 downto 0) <= (others => '0');
   audio(9 downto 8) <= (others => '0');
-  AUDIO_R <= std_logic_vector(psg_audio_r + audio);
-  AUDIO_L <= std_logic_vector(psg_audio_l + audio);
+  AUDIO_R <= std_logic_vector(psg_4_audio_r + psg_5_audio_r + audio);
+  AUDIO_L <= std_logic_vector(psg_4_audio_l + psg_5_audio_l + audio);
 
 end arch;
