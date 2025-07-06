@@ -283,10 +283,12 @@ wire  [7:0] paddle_0;
 wire [10:0] ps2_key;
 wire [24:0] ps2_mouse;
 
-wire  [8:0] mouse_x;
-wire  [8:0] mouse_y;
-wire  [7:0] mouse_flags;
-wire        mouse_strobe;
+
+// The ps2_mouse changes on transition, but gyruco's mouse 
+// implementation is based on the mist mouse_strobe logic
+wire mouse_strobe = (old_stb != ps2_mouse[24]);
+reg  old_stb = 0;
+always @(posedge clk_sys) old_stb <= ps2_mouse[24];
 
 wire mouse_4_inslot = status[29:28] == 2'b01;
 wire mouse_5_inslot = status[31:30] == 2'b00;
@@ -517,7 +519,7 @@ apple2_top apple2_top
 	.mouse_x({ps2_mouse[4],ps2_mouse[15:8]}),
 	.mouse_y({ps2_mouse[5],ps2_mouse[23:16]}),
 	.mouse_button(ps2_mouse[0]),
-	.mouse_strobe(ps2_mouse[24]),
+	.mouse_strobe(mouse_strobe),
 
 	.mouse_4_inslot(mouse_4_inslot),
 	.mouse_5_inslot(mouse_5_inslot),
