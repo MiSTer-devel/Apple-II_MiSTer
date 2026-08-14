@@ -134,7 +134,9 @@ port (
 	-- mocking board
 	mb_4_inslot     : in std_logic;
 	mb_5_inslot     : in std_logic;
-	saturn_5_inslot : in std_logic	
+	saturn_5_inslot : in std_logic;
+	-- Microsoft Z80 Softcard (slot 4)
+	softcard_4_inslot : in std_logic := '0'
 );
 end apple2_top;
 
@@ -226,7 +228,36 @@ architecture arch of apple2_top is
 
 
   signal a_ram: unsigned(17 downto 0);
-  
+
+  -- ------------------------------------------------------------------
+  -- Microsoft Z80 Softcard (slot 4)
+  --
+  -- Adapted from the apple2efpga MiST port, itself derived from
+  -- system.v (a2e128 core) by Jesus Arias.
+  --
+  -- The 6502/65C02 lives inside the opaque apple2 core, so the Z80
+  -- cannot be muxed onto the bus before address decoding. Instead the
+  -- 6502 is frozen via CPU_WAIT and the Z80 overrides ram_addr/di/we
+  -- at this level during CPU phases (PHASE_ZERO='1'). Video phases pass
+  -- through untouched. The Z80 bypasses the apple2 MMU, which is correct
+  -- for CP/M: the Softcard address translation replaces the MMU.
+  -- ------------------------------------------------------------------
+  signal z80_mreq_n, z80_iorq_n, z80_rd_n, z80_wr_n : std_logic;
+  signal z80_rfsh_n, z80_m1_n, z80_halt_n, z80_busak_n : std_logic;
+  signal z80_A  : std_logic_vector(15 downto 0);
+  signal z80_DO : std_logic_vector(7 downto 0);
+  signal z80_mem_we : std_logic;
+  signal z80_ham : std_logic_vector(3 downto 0);
+  signal z80_addr_x : std_logic_vector(15 downto 0);
+  signal z80_wait_n, z80_cen : std_logic;
+  signal z80_vid_cen : std_logic;
+  signal z80_vid_cnt : unsigned(2 downto 0) := (others => '0');
+  signal zsel : std_logic := '0';
+  signal zsel_guard : unsigned(1 downto 0) := "00";
+  signal cpu_wait_s : std_logic;
+  signal aux_core : std_logic;
+
+
   signal psg_4_audio_l : unsigned(9 downto 0);
   signal psg_4_audio_r : unsigned(9 downto 0);
 
@@ -308,10 +339,26 @@ begin
 
   COLOR_LINE_CONTROL <= (COLOR_LINE or (TEXT_COLOR and not TEXT_MODE)) and not (SCREEN_MODE(1) or SCREEN_MODE(0));  -- Color or B&W mode
 
-  -- Simulate power up on cold reset to go to the disk boot routine
-  ram_we   <= we_ram when reset_cold = '0' else '1';
-  ram_addr <= std_logic_vector(a_ram) when reset_cold = '0' else std_logic_vector(to_unsigned(1012,ram_addr'length)); -- $3F4
-  ram_di   <= std_logic_vector(D) when reset_cold = '0' else "00000000";
+  -- Simulate power up on cold reset to go to the disk boot routine.
+  -- When the Z80 Softcard owns the bus (zsel='1') it replaces the 6502 on
+  -- CPU phases only; video phases (PHASE_ZERO='0') always pass through.
+  ram_we   <= '1' when reset_cold = '1' else
+              z80_mem_we when zsel = '1' and PHASE_ZERO = '1' else
+              '0'        when zsel = '1' else
+              we_ram;
+  ram_addr <= std_logic_vector(to_unsigned(1012,ram_addr'length)) when reset_cold = '1' else -- $3F4
+              "00" & z80_addr_x when zsel = '1' and PHASE_ZERO = '1' else
+              std_logic_vector(a_ram);
+  ram_di   <= "00000000" when reset_cold = '1' else
+              z80_DO when zsel = '1' and PHASE_ZERO = '1' else
+              std_logic_vector(D);
+
+  -- The aux bank latch keeps its last value while the 6502 is frozen (e.g.
+  -- ALTZP set). The Z80 only ever uses main RAM, so force the main bank.
+  ram_aux <= '0' when zsel = '1' else aux_core;
+
+  -- Freeze the 6502/65C02 while the Z80 is the active CPU
+  cpu_wait_s <= CPU_WAIT or zsel;
 
   PD <= PSG_4_DO when psg_4_oe = '1'  else
         PSG_5_DO when psg_5_oe = '1'  else
@@ -325,7 +372,7 @@ begin
   core : entity work.apple2 port map (
     CLK_14M        => CLK_14M,
     CLK_2M         => CLK_2M,
-    CPU_WAIT       => CPU_WAIT,
+    CPU_WAIT       => cpu_wait_s,
     PHASE_ZERO     => PHASE_ZERO,
     PHASE_ZERO_R   => PHASE_ZERO_R,
     PHASE_ZERO_F   => PHASE_ZERO_F,
@@ -336,7 +383,7 @@ begin
     ram_addr       => a_ram,
     D              => D,
     ram_do         => unsigned(ram_do),
-    aux            => ram_aux,
+    aux            => aux_core,
     PD             => PD,
     CPU_WE         => cpu_we,
     IRQ_N          => psg_4_irq_n and psg_5_irq_n and ssc_irq_n and mouse_4_irq_n and mouse_5_irq_n,
@@ -597,6 +644,126 @@ begin
 	  );
 
 
+
+  -- ------------------------------------------------------------------
+  -- Microsoft Z80 Softcard (slot 4)
+  -- ------------------------------------------------------------------
+
+  -- CPU select flip-flop. system.v toggles on any write to $C4xx:
+  --   if ((~cclke)&(ca[15:8]==8'hC4)&we) zsel<=~zsel
+  -- There, 'ca' is combinational so the condition clears itself as soon as
+  -- the newly active CPU drives the bus. Here both ADDR and z80_A are
+  -- registered, so the stale address of the CPU just parked could retrigger
+  -- the toggle. The guard counter blanks detection for two CPU cycles,
+  -- giving the incoming CPU time to update its address bus.
+  z80_select : process(CLK_14M, reset)
+  begin
+    if reset = '1' then
+      zsel <= '0';
+      zsel_guard <= "00";
+    elsif rising_edge(CLK_14M) then
+      if softcard_4_inslot = '0' then
+        zsel <= '0';
+        zsel_guard <= "00";
+      elsif PHASE_ZERO_F = '1' then
+        if zsel_guard /= "00" then
+          zsel_guard <= zsel_guard - 1;
+        elsif zsel = '0' then
+          -- 6502 active: any write to $C4xx hands the bus to the Z80
+          if ADDR(15 downto 8) = x"C4" and cpu_we = '1' then
+            zsel <= '1';
+            zsel_guard <= "10";
+          end if;
+        else
+          -- Z80 active: writes Apple $C4xx (its own $E4xx) to hand it back
+          if z80_addr_x(15 downto 8) = x"C4" and z80_mem_we = '1' then
+            zsel <= '0';
+            zsel_guard <= "10";
+          end if;
+        end if;
+      end if;
+    end if;
+  end process;
+
+  -- Softcard address translation: the card wires the Z80 address bus to the
+  -- Apple bus with the top nibble incremented, so CP/M gets contiguous RAM
+  -- from $0000 and the Apple I/O page lands where the Z80 will not run code.
+  --   Z80 $0000-$AFFF -> Apple $1000-$BFFF   (main RAM)
+  --   Z80 $B000-$DFFF -> Apple $D000-$FFFF   (language card RAM)
+  --   Z80 $E000-$EFFF -> Apple $C000-$CFFF   (I/O and slot ROM)
+  --   Z80 $F000-$FFFF -> Apple $0000-$0FFF   (zero page and stack)
+  with z80_A(15 downto 12) select z80_ham <=
+    x"1" when x"0", x"2" when x"1", x"3" when x"2", x"4" when x"3",
+    x"5" when x"4", x"6" when x"5", x"7" when x"6", x"8" when x"7",
+    x"9" when x"8", x"A" when x"9", x"B" when x"A", x"D" when x"B",
+    x"E" when x"C", x"F" when x"D", x"C" when x"E",
+    x"0" when others;
+
+  z80_addr_x <= z80_ham & z80_A(11 downto 0);
+
+  -- rfsh_n excludes refresh cycles: MREQ_n also asserts during refresh, but
+  -- that is not a real memory access.
+  z80_mem_we <= '1' when z80_wr_n = '0' and z80_mreq_n = '0' and z80_rfsh_n = '1' else '0';
+
+  -- The Softcard Z80 ran at 2MHz, twice the Apple bus rate. PHASE_ZERO_F
+  -- alone gives 1MHz, so add a second clock enable in the middle of the
+  -- video phase, where the RAM is busy with video and not with the Z80.
+  -- Internal Z80 operations then run at 2MHz while memory accesses stay at
+  -- 1MHz -- correct, since there is one CPU RAM slot per bus cycle.
+  z80_vid_phase : process(CLK_14M)
+  begin
+    if rising_edge(CLK_14M) then
+      z80_vid_cen <= '0';
+      if PHASE_ZERO_F = '1' then
+        z80_vid_cnt <= (others => '0');
+      elsif PHASE_ZERO = '0' then
+        if z80_vid_cnt /= "111" then
+          z80_vid_cnt <= z80_vid_cnt + 1;
+        end if;
+        if z80_vid_cnt = "011" then
+          z80_vid_cen <= '1';
+        end if;
+      end if;
+    end if;
+  end process;
+
+  -- Stall the extra enable on real memory accesses. On a read the RAM data is
+  -- not there yet; on a write ram_we is gated by PHASE_ZERO='1', so advancing
+  -- now would drop WR_n before the RAM commits and lose the write.
+  z80_wait_n <= '0' when zsel = '1' and z80_vid_cen = '1'
+                         and z80_mreq_n = '0' and z80_rfsh_n = '1'
+                else '1';
+
+  z80_cen <= (PHASE_ZERO_F or z80_vid_cen) and zsel;
+
+  -- RAM data is only valid at the end of the CPU phase, which is why the read
+  -- is captured on PHASE_ZERO_F and not PHASE_ZERO_R.
+  softcard : entity work.T80s
+    generic map (
+      Mode    => 0,   -- plain Z80
+      T2Write => 1,
+      IOWait  => 0
+    )
+    port map (
+      RESET_n => not reset,
+      CLK     => CLK_14M,
+      CEN     => z80_cen,
+      WAIT_n  => z80_wait_n,
+      INT_n   => '1',
+      NMI_n   => '1',
+      BUSRQ_n => '1',
+      M1_n    => z80_m1_n,
+      MREQ_n  => z80_mreq_n,
+      IORQ_n  => z80_iorq_n,
+      RD_n    => z80_rd_n,
+      WR_n    => z80_wr_n,
+      RFSH_n  => z80_rfsh_n,
+      HALT_n  => z80_halt_n,
+      BUSAK_n => z80_busak_n,
+      A       => z80_A,
+      DI      => ram_do(7 downto 0),
+      DO      => z80_DO
+    );
 
   audio(6 downto 0) <= (others => '0');
   audio(9 downto 8) <= (others => '0');

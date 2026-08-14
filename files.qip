@@ -1,4 +1,5 @@
-set_global_assignment -name QIP_FILE rtl/t65/t65.qip 
+set_global_assignment -name QIP_FILE rtl/t65/t65.qip
+set_global_assignment -name QIP_FILE rtl/T80/T80.qip
 set_global_assignment -name VHDL_FILE rtl/R65Cx2.vhd
 set_global_assignment -name VHDL_FILE rtl/mockingboard/mockingboard.vhd
 set_global_assignment -name VHDL_FILE rtl/mockingboard/via6522.vhd
