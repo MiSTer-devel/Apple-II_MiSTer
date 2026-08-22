@@ -86,6 +86,8 @@ parameter CONF_STR = {
 	"P2-;",	
 	"P2OG,Pixel Clock,Double,Normal;",
 	"P2OL,Lo-Res Text,Clean,Composite;",
+	"P2O4,Color sharpness,RGB,Composite;",
+	"P2o0,NTSC vertical blend,On,Off;",
 	"P2-;",	
 	"P2O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
 	"P2OCD,Aspect ratio,Original,Full Screen,[ARC1],[ARC2];",
@@ -120,7 +122,7 @@ pll pll
 
 /////////////////  HPS  ///////////////////////////
 
-wire [31:0] status;
+wire [63:0] status;
 wire  [1:0] buttons;
 wire        forced_scandoubler;
 wire [21:0] gamma_bus;
@@ -176,7 +178,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	.status_in({status[31:26],palette_toggle?palette_req:status[25:24],status[23:21],video_toggle?screen_mode_req:status[20:19],status[18:0]}),
+	.status_in({status[63:26],palette_toggle?palette_req:status[25:24],status[23:21],video_toggle?screen_mode_req:status[20:19],status[18:0]}),
 	.status_set(video_toggle || palette_toggle),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
@@ -300,6 +302,8 @@ apple2_top apple2_top
 	.SCREEN_MODE( status[20:19] ),
 	.TEXT_COLOR( text_color ),
 	.COLOR_PALETTE(status[25:24]),
+	.GRAY_SEAM_FIX(~status[4]),
+	.NTSC_VERTICAL_COMB(~status[32]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),
 

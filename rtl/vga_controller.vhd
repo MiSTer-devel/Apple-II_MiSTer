@@ -32,6 +32,8 @@ entity vga_controller is
 		COLOR_LINE : in std_logic;
 		SCREEN_MODE: in std_logic_vector(1 downto 0);   -- 00: Color, 01: B&W, 10: Green, 11: Amber
 		COLOR_PALETTE: in std_logic_vector(1 downto 0); -- 4 palette choices
+		GRAY_SEAM_FIX: in std_logic;
+		NTSC_VERTICAL_COMB: in std_logic;
 		HBL        : in std_logic;
 		VBL        : in std_logic;
 
@@ -82,7 +84,66 @@ architecture rtl of vga_controller is
 	constant VGA_VSYNC_LINES : integer := 3;
 
 	signal vbl_delayed : std_logic;
-	signal de_delayed : std_logic_vector(17 downto 0);
+
+	subtype rgb_component_t is unsigned(7 downto 0);
+	type rgb_window_t is array (0 to 4) of unsigned(23 downto 0);
+	type metric_window_t is array (0 to 4) of integer range 0 to 255;
+	type hcount_window_t is array (0 to 4) of unsigned(10 downto 0);
+	type rgb_line_ram_t is array (0 to 559) of unsigned(23 downto 0);
+	signal previous_line_rgb : rgb_line_ram_t;
+	signal previous_line_valid : std_logic := '0';
+	signal seam_active_d : std_logic := '0';
+	signal comb_hcount : unsigned(10 downto 0) := (others => '0');
+	signal line_wr_addr : unsigned(10 downto 0) := (others => '0');
+	signal line_wr_data : unsigned(23 downto 0) := (others => '0');
+	signal line_wr_en : std_logic := '0';
+	signal raw_rgb, seam_rgb, previous_rgb_q, current_rgb_q, filtered_rgb : unsigned(23 downto 0);
+	signal raw_hcount : unsigned(10 downto 0);
+	signal raw_active, raw_vbl, raw_color_mode, raw_color_line : std_logic;
+	signal seam_hcount : unsigned(10 downto 0);
+	signal seam_active, seam_timing_active, seam_vbl, seam_color_mode : std_logic;
+	signal current_active_q, current_timing_active_q, filtered_timing_active, line_valid_q, color_mode_q : std_logic;
+	signal timing_active_delay : std_logic_vector(0 to 13) := (others => '0');
+	signal seam_rgb_window : rgb_window_t := (others => (others => '0'));
+	signal seam_luma_window, seam_saturation_window : metric_window_t := (others => 0);
+	signal seam_hcount_window : hcount_window_t := (others => (others => '0'));
+	signal seam_valid_window : std_logic_vector(0 to 4) := (others => '0');
+	signal seam_vbl_window : std_logic_vector(0 to 4) := (others => '0');
+	signal seam_color_mode_window : std_logic_vector(0 to 4) := (others => '0');
+	signal seam_color_line_window : std_logic_vector(0 to 4) := (others => '0');
+
+	function clamp_rgb(value : integer) return rgb_component_t is
+	begin
+		if value < 0 then
+			return X"00";
+		elsif value > 255 then
+			return X"FF";
+		else
+			return to_unsigned(value, 8);
+		end if;
+	end function;
+
+	function rgb_luma(rgb : unsigned(23 downto 0)) return integer is
+	begin
+		return (306 * to_integer(rgb(23 downto 16)) +
+			601 * to_integer(rgb(15 downto 8)) +
+			117 * to_integer(rgb(7 downto 0)) + 512) / 1024;
+	end function;
+
+	function rgb_saturation(rgb : unsigned(23 downto 0)) return integer is
+		variable red, green, blue, maximum, minimum : integer;
+	begin
+		red := to_integer(rgb(23 downto 16));
+		green := to_integer(rgb(15 downto 8));
+		blue := to_integer(rgb(7 downto 0));
+		maximum := red;
+		minimum := red;
+		if green > maximum then maximum := green; end if;
+		if blue > maximum then maximum := blue; end if;
+		if green < minimum then minimum := green; end if;
+		if blue < minimum then minimum := blue; end if;
+		return maximum - minimum;
+	end function;
 			
   -- Palette signals
   signal color_addr    : unsigned(1 downto 0);
@@ -305,7 +366,14 @@ begin
 				end case;
 			end if;
 			
-		elsif shift_reg(0) = shift_reg(4) and shift_reg(5) = shift_reg(1) then
+		-- Sharper mode also colorizes non-periodic transition dots through the
+		-- LUT (AppleWin-style) instead of rendering them gray; lit dots always
+		-- map to a non-black color, so the on/off silhouette is preserved.
+		-- Plain white<->black edges are excluded and keep the left-side level.
+		elsif (shift_reg(0) = shift_reg(4) and shift_reg(5) = shift_reg(1)) or
+			(GRAY_SEAM_FIX = '1' and (shift_reg(3 downto 2) = "01" or shift_reg(3 downto 2) = "10") and
+			not ((shift_reg(1 downto 0) = "11" and shift_reg(5 downto 4) = "00") or
+			(shift_reg(1 downto 0) = "00" and shift_reg(5 downto 4) = "11"))) then
 		 			
 			-- rotate the 4-bit value based on contents of shift register
 			-- then apply the color mapping
@@ -418,7 +486,19 @@ begin
 				
 				-- gray - we use the darkest gray of all the palettes to avoid it being too prominent
 				when "01" | "10" => 
-					if COLOR_PALETTE = "11" then
+					if GRAY_SEAM_FIX = '1' then
+						-- Only white<->black edges reach here in sharper mode.
+						if shift_reg(1) = '1' then
+							if COLOR_PALETTE = "00" then
+								r := WHITE_NTSC; g := WHITE_NTSC; b := WHITE_NTSC;
+							elsif COLOR_PALETTE = "11" then
+								r := CURRENT_COL15(23 downto 16); g := CURRENT_COL15(15 downto 8); b := CURRENT_COL15(7 downto 0);
+							else
+								r := WHITE; g := WHITE; b := WHITE;
+							end if;
+						end if;
+						-- left black keeps the background level already assigned
+					elsif COLOR_PALETTE = "11" then
 						 r := CURRENT_COL5(23 downto 16); g := CURRENT_COL5(15 downto 8); b := CURRENT_COL5(7 downto 0); -- gray 1 (darker)
 					else
 						r := X"63"; g := X"63"; b := X"63";
@@ -428,15 +508,146 @@ begin
 			end case;
 		end if;
 		  
-		VGA_R <= r;
-		VGA_G <= g;
-		VGA_B <= b;
-		
-		de_delayed <= de_delayed(16 downto 0) & last_hbl;
+		raw_rgb <= r & g & b;
+		raw_hcount <= hcount;
+		raw_vbl <= VBL;
+		raw_color_line <= COLOR_LINE;
+		if HBL = '0' and hcount < to_unsigned(560, hcount'length) then
+			raw_active <= '1';
+		else
+			raw_active <= '0';
+		end if;
+		if SCREEN_MODE = "00" then
+			raw_color_mode <= '1';
+		else
+			raw_color_mode <= '0';
+		end if;
 	end if;
 end process pixel_generator;
 
+process (CLK_14M)
+	variable next_rgb : rgb_window_t;
+	variable next_luma, next_saturation : metric_window_t;
+	variable next_hcount : hcount_window_t;
+	variable next_valid, next_vbl : std_logic_vector(0 to 4);
+	variable next_color_mode, next_color_line : std_logic_vector(0 to 4);
+	variable output_rgb : unsigned(23 downto 0);
+begin
+	if rising_edge(CLK_14M) then
+		for index in 0 to 3 loop
+			next_rgb(index) := seam_rgb_window(index + 1);
+			next_luma(index) := seam_luma_window(index + 1);
+			next_saturation(index) := seam_saturation_window(index + 1);
+			next_hcount(index) := seam_hcount_window(index + 1);
+			next_valid(index) := seam_valid_window(index + 1);
+			next_vbl(index) := seam_vbl_window(index + 1);
+			next_color_mode(index) := seam_color_mode_window(index + 1);
+			next_color_line(index) := seam_color_line_window(index + 1);
+		end loop;
+
+		next_rgb(4) := raw_rgb;
+		next_luma(4) := rgb_luma(raw_rgb);
+		next_saturation(4) := rgb_saturation(raw_rgb);
+		next_hcount(4) := raw_hcount;
+		next_valid(4) := raw_active;
+		next_vbl(4) := raw_vbl;
+		next_color_mode(4) := raw_color_mode;
+		next_color_line(4) := raw_color_line;
+
+		-- Colorization happens in the pixel generator, so use the newest RGB
+		-- sample while preserving the established active-window timing below.
+		output_rgb := next_rgb(4);
+
+		seam_rgb_window <= next_rgb;
+		seam_luma_window <= next_luma;
+		seam_saturation_window <= next_saturation;
+		seam_hcount_window <= next_hcount;
+		seam_valid_window <= next_valid;
+		seam_vbl_window <= next_vbl;
+		seam_color_mode_window <= next_color_mode;
+		seam_color_line_window <= next_color_line;
+
+		seam_rgb <= output_rgb;
+		seam_hcount <= next_hcount(4);
+		seam_active <= next_valid(4);
+		timing_active_delay <= timing_active_delay(1 to 13) & next_valid(2);
+		seam_timing_active <= timing_active_delay(0);
+		seam_vbl <= next_vbl(4);
+		seam_color_mode <= next_color_mode(4);
+	end if;
+end process seam_cleanup;
+
+process (CLK_14M)
+begin
+	if rising_edge(CLK_14M) then
+		current_rgb_q <= seam_rgb;
+		current_active_q <= seam_active;
+		current_timing_active_q <= seam_timing_active;
+		line_valid_q <= previous_line_valid;
+		color_mode_q <= seam_color_mode;
+
+		-- Write is delayed one cycle so the read of address A always precedes
+		-- the write of A; old-line data no longer depends on the RAM's
+		-- read-during-write mode (M10K cannot return old data on one port).
+		line_wr_en <= '0';
+		seam_active_d <= seam_timing_active;
+		if seam_vbl = '1' then
+			previous_line_valid <= '0';
+			comb_hcount <= (others => '0');
+		elsif seam_timing_active = '1' then
+			previous_rgb_q <= previous_line_rgb(to_integer(comb_hcount));
+			line_wr_addr <= comb_hcount;
+			line_wr_data <= seam_rgb;
+			line_wr_en <= '1';
+			comb_hcount <= comb_hcount + 1;
+		elsif seam_active_d = '1' then
+			previous_line_valid <= '1';
+			comb_hcount <= (others => '0');
+		end if;
+		if line_wr_en = '1' then
+			previous_line_rgb(to_integer(line_wr_addr)) <= line_wr_data;
+		end if;
+	end if;
+end process vertical_line_buffer;
+
+process (CLK_14M)
+	variable output_rgb : unsigned(23 downto 0);
+	variable current_luma, previous_luma : integer;
+	variable red_chroma, green_chroma, blue_chroma : integer;
+begin
+	if rising_edge(CLK_14M) then
+		output_rgb := current_rgb_q;
+		filtered_timing_active <= current_timing_active_q;
+		if NTSC_VERTICAL_COMB = '1' and current_timing_active_q = '1' and
+			line_valid_q = '1' and color_mode_q = '1' then
+			current_luma := (306 * to_integer(current_rgb_q(23 downto 16)) +
+				601 * to_integer(current_rgb_q(15 downto 8)) +
+				117 * to_integer(current_rgb_q(7 downto 0)) + 512) / 1024;
+			previous_luma := (306 * to_integer(previous_rgb_q(23 downto 16)) +
+				601 * to_integer(previous_rgb_q(15 downto 8)) +
+				117 * to_integer(previous_rgb_q(7 downto 0)) + 512) / 1024;
+
+			red_chroma := (to_integer(current_rgb_q(23 downto 16)) - current_luma +
+				to_integer(previous_rgb_q(23 downto 16)) - previous_luma) / 2;
+			green_chroma := (to_integer(current_rgb_q(15 downto 8)) - current_luma +
+				to_integer(previous_rgb_q(15 downto 8)) - previous_luma) / 2;
+			blue_chroma := (to_integer(current_rgb_q(7 downto 0)) - current_luma +
+				to_integer(previous_rgb_q(7 downto 0)) - previous_luma) / 2;
+
+			-- JS comb keeps each line's own luma and averages only chroma.
+			output_rgb := clamp_rgb(current_luma + red_chroma) &
+				clamp_rgb(current_luma + green_chroma) &
+				clamp_rgb(current_luma + blue_chroma);
+		end if;
+		filtered_rgb <= output_rgb;
+	end if;
+end process vertical_comb_filter;
+
+VGA_R <= filtered_rgb(23 downto 16);
+VGA_G <= filtered_rgb(15 downto 8);
+VGA_B <= filtered_rgb(7 downto 0);
+
 VGA_VBL <= vbl_delayed;
-VGA_HBL <= de_delayed(9) and de_delayed(17);
+VGA_HBL <= not filtered_timing_active;
 
 end rtl;

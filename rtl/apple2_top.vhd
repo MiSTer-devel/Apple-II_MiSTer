@@ -63,6 +63,8 @@ port (
 	video_switch   : out std_logic;
 	palette_switch : out std_logic;
 	COLOR_PALETTE  :  in std_logic_vector(1 downto 0); -- 00: Original (//e NTSC), 01: //gs, 02: AppleWin, 03: //c PAL
+	GRAY_SEAM_FIX  : in std_logic;
+	NTSC_VERTICAL_COMB : in std_logic;
 	
     PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
     ROMSWITCH      : in std_logic;
@@ -376,6 +378,8 @@ begin
     COLOR_LINE => COLOR_LINE_CONTROL,
     SCREEN_MODE => SCREEN_MODE,
     COLOR_PALETTE => COLOR_PALETTE,
+    GRAY_SEAM_FIX => GRAY_SEAM_FIX,
+    NTSC_VERTICAL_COMB => NTSC_VERTICAL_COMB,
     HBL        => HBL,
     VBL        => VBL,
     VGA_HS     => hsync,
