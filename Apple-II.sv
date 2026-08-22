@@ -95,7 +95,7 @@ parameter CONF_STR = {
 	"P2-;",	
 	"P3,Hardware;",
 	"P3-;",	
-	"P3OST,Slot 4,Mocking board,Mouse,Empty;",
+	"P3OST,Slot 4,Mocking board,Mouse,Z80 Softcard,Empty;",
 	"P3OUV,Slot 5,Mouse,Mocking board,256K Saturn,Empty;",
 	"P3O6,Analog X/Y,Normal,Swapped;",
 	"P3OHI,Paddle as analog,No,X,Y;",
@@ -145,7 +145,8 @@ wire mouse_4_inslot = status[29:28] == 2'b01;
 wire mouse_5_inslot = status[31:30] == 2'b00;
 wire mb_4_inslot = status[29:28] == 2'b00;
 wire mb_5_inslot = status[31:30] == 2'b01;
-wire saturn_5_inslot = status[31:30] == 2'b10;	
+wire saturn_5_inslot = status[31:30] == 2'b10;
+wire softcard_4_inslot = status[29:28] == 2'b10;
 
 
 wire [31:0] sd_lba[3];
@@ -378,7 +379,8 @@ apple2_top apple2_top
 	.mouse_5_inslot(mouse_5_inslot),
 	.mb_4_inslot(mb_4_inslot),
 	.mb_5_inslot(mb_5_inslot),
-	.saturn_5_inslot(saturn_5_inslot)
+	.saturn_5_inslot(saturn_5_inslot),
+	.softcard_4_inslot(softcard_4_inslot)
 );
 
 wire [2:0] scale = status[11:9];
