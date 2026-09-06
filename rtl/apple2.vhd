@@ -171,13 +171,36 @@ architecture rtl of apple2 is
   signal D_IN : unsigned(7 downto 0);
   signal D_OUT: unsigned(7 downto 0);
   signal A : unsigned(15 downto 0);
-  signal T65_A : std_logic_vector(23 downto 0);
-  signal T65_DI : std_logic_vector(7 downto 0);
-  signal T65_DO : std_logic_vector(7 downto 0);
-  signal T65_WE_N : std_logic;
-  signal R65C02_A : unsigned(15 downto 0);
-  signal R65C02_DO : unsigned(7 downto 0);
-  signal R65C02_WE_N : std_logic;
+  -- nmos6502 (NMOS 6502 core, rtl/cpu/nmos6502, WDC_MODE=0; replaced T65)
+  signal N6502_A : std_logic_vector(15 downto 0);
+  signal N6502_DO : std_logic_vector(7 downto 0);
+  signal N6502_WE : std_logic;              -- active-high write cycle
+  -- NMOS/SoC-specific outputs, unused on the Apple II
+  signal N6502_SYNC : std_logic;
+  signal N6502_VECTOR_PULL : std_logic;
+  signal N6502_ML_N : std_logic;
+  signal N6502_PHI1O : std_logic;
+  signal N6502_PHI2O : std_logic;
+  signal N6502_BUS_OE : std_logic;
+  signal N6502_DOUT_OE : std_logic;
+  signal N6502_INT_SEQ : std_logic;
+  signal N6502_RTI_DONE : std_logic;
+  signal N6502_IN_WAI : std_logic;
+  signal N6502_IN_STP : std_logic;
+  signal N6502_SS_RDATA : std_logic_vector(63 downto 0);
+  -- wdc65c02 (W65C02S-style 65C02 core, rtl/cpu/wdc65c02, WDC_MODE=1;
+  -- replaced R65C02)
+  signal N65C02_A : std_logic_vector(15 downto 0);
+  signal N65C02_DO : std_logic_vector(7 downto 0);
+  signal N65C02_WE : std_logic;             -- active-high write cycle
+  -- SoC-specific outputs, unused on the Apple II
+  signal N65C02_SYNC : std_logic;
+  signal N65C02_VECTOR_PULL : std_logic;
+  signal N65C02_INT_SEQ : std_logic;
+  signal N65C02_RTI_DONE : std_logic;
+  signal N65C02_IN_WAI : std_logic;
+  signal N65C02_IN_STP : std_logic;
+  signal N65C02_SS_RDATA : std_logic_vector(63 downto 0);
   signal we : std_logic;
 
   -- Main ROM signals
@@ -228,6 +251,80 @@ architecture rtl of apple2 is
 
   
   signal video_rom_select : std_logic;
+
+  -- nmos6502: NMOS 6502 / W65C02S core (rtl/cpu/nmos6502/cpu_65c02.sv).
+  -- WDC_MODE=0 selects NMOS 6502 bus/flag behavior.
+  component nmos6502 is
+    generic (
+      SS_BASE  : std_logic_vector(9 downto 0) := (others => '0');
+      WDC_MODE : std_logic_vector(0 downto 0) := "1"
+    );
+    port (
+      clk         : in  std_logic;
+      ce          : in  std_logic;
+      ce_n        : in  std_logic;
+      reset       : in  std_logic;
+      stall       : in  std_logic;
+      irq_n       : in  std_logic;
+      nmi_n       : in  std_logic;
+      rdy         : in  std_logic;
+      so_n        : in  std_logic;
+      be          : in  std_logic;
+      stp_nop     : in  std_logic;
+      addr        : out std_logic_vector(15 downto 0);
+      dout        : out std_logic_vector(7 downto 0);
+      din         : in  std_logic_vector(7 downto 0);
+      we          : out std_logic;
+      sync        : out std_logic;
+      vector_pull : out std_logic;
+      ml_n        : out std_logic;
+      phi1o       : out std_logic;
+      phi2o       : out std_logic;
+      bus_oe      : out std_logic;
+      dout_oe     : out std_logic;
+      int_seq     : out std_logic;
+      rti_done    : out std_logic;
+      in_wai      : out std_logic;
+      in_stp      : out std_logic;
+      ss_addr     : in  std_logic_vector(9 downto 0);
+      ss_wdata    : in  std_logic_vector(63 downto 0);
+      ss_wren     : in  std_logic;
+      ss_rdata    : out std_logic_vector(63 downto 0)
+    );
+  end component;
+
+  -- wdc65c02: W65C02S-style 65C02 core (rtl/cpu/wdc65c02/cpu_65c02.sv).
+  component wdc65c02 is
+    generic (
+      SS_BASE  : std_logic_vector(9 downto 0) := (others => '0');
+      WDC_MODE : std_logic_vector(0 downto 0) := "1"
+    );
+    port (
+      clk         : in  std_logic;
+      ce          : in  std_logic;
+      ce_n        : in  std_logic;
+      reset       : in  std_logic;
+      stall       : in  std_logic;
+      irq_n       : in  std_logic;
+      nmi_n       : in  std_logic;
+      rdy         : in  std_logic;
+      stp_nop     : in  std_logic;
+      addr        : out std_logic_vector(15 downto 0);
+      dout        : out std_logic_vector(7 downto 0);
+      din         : in  std_logic_vector(7 downto 0);
+      we          : out std_logic;
+      sync        : out std_logic;
+      vector_pull : out std_logic;
+      int_seq     : out std_logic;
+      rti_done    : out std_logic;
+      in_wai      : out std_logic;
+      in_stp      : out std_logic;
+      ss_addr     : in  std_logic_vector(9 downto 0);
+      ss_wdata    : in  std_logic_vector(63 downto 0);
+      ss_wren     : in  std_logic;
+      ss_rdata    : out std_logic_vector(63 downto 0)
+    );
+  end component;
 begin
 
   CLK_2M <= Q3;
@@ -556,10 +653,11 @@ begin
 	 
     VIDEO      => VIDEO);
 
-  we <= not T65_WE_N when cpu = '0' else not R65C02_WE_N;
-  A <= unsigned(T65_A(15 downto 0)) when cpu = '0' else R65C02_A;
-  D_OUT <= unsigned(T65_DO) when cpu = '0' else R65C02_DO;
-  T65_DI <= std_logic_vector(D_OUT) when T65_WE_N = '0' else std_logic_vector(D_IN);
+  -- Both cores use active-high write cycles (unlike T65/R65C02, which were
+  -- active-low).
+  we <= N6502_WE when cpu = '0' else N65C02_WE;
+  A <= unsigned(N6502_A) when cpu = '0' else unsigned(N65C02_A);
+  D_OUT <= unsigned(N6502_DO) when cpu = '0' else unsigned(N65C02_DO);
   --CPU_EN <= PHASE_ZERO_F; -- not sure why this isn't working??
   CPU_EN <= '1' when PHASE_ZERO_D = '1' and PHASE_ZERO = '0' else '0';
   cpu_enable: process (CLK_14M)
@@ -572,36 +670,84 @@ begin
 
 
 
-  cpu6502 : entity work.T65
+  -- NMOS 6502: nmos6502 core (WDC_MODE=0, one bus access per cycle).
+  --   ce = CPU_EN, rdy = ~CPU_WAIT - the same edge model as the wdc65c02 core
+  --        below, so machine RAM/ROM timing is unchanged (WAIT now arrives on
+  --        rdy instead of being ANDed into the old T65 enable).
+  --   so_n high (no Set Overflow pin on the Apple II); be=1 (always drive);
+  --   stp_nop=1: no power switch, so STP ($DB) is a NOP.
+  --   ml_n/phi1o/phi2o/bus_oe/dout_oe are NMOS-specific pins unused here; the
+  --   savestate bus is tied off until a machine-wide savestate walker exists.
+  cpu6502 : component nmos6502
+    generic map (
+      WDC_MODE => "0"
+    )
     port map (
-      mode     => "00",
-      clk      => CLK_14M,
-      enable   => CPU_EN and (not CPU_WAIT),
-      res_n    => not reset,
-
-      Rdy      => '1',
-      Abort_n  => '1',
-      SO_n     => '1',
-
-      IRQ_n    => IRQ_N,
-      NMI_n    => NMI_N,
-      R_W_n    => T65_WE_N,
-      A        => T65_A,
-      DI       => T65_DI,
-      DO       => T65_DO
+      clk         => CLK_14M,
+      ce          => CPU_EN,
+      ce_n        => '0',
+      reset       => reset,
+      stall       => '0',
+      irq_n       => IRQ_N,
+      nmi_n       => NMI_N,
+      rdy         => not CPU_WAIT,
+      so_n        => '1',
+      be          => '1',
+      stp_nop     => '1',
+      addr        => N6502_A,
+      dout        => N6502_DO,
+      din         => std_logic_vector(D_IN),
+      we          => N6502_WE,
+      sync        => N6502_SYNC,
+      vector_pull => N6502_VECTOR_PULL,
+      ml_n        => N6502_ML_N,
+      phi1o       => N6502_PHI1O,
+      phi2o       => N6502_PHI2O,
+      bus_oe      => N6502_BUS_OE,
+      dout_oe     => N6502_DOUT_OE,
+      int_seq     => N6502_INT_SEQ,
+      rti_done    => N6502_RTI_DONE,
+      in_wai      => N6502_IN_WAI,
+      in_stp      => N6502_IN_STP,
+      ss_addr     => (others => '0'),
+      ss_wdata    => (others => '0'),
+      ss_wren     => '0',
+      ss_rdata    => N6502_SS_RDATA
     );
 
-  cpu65c02: entity work.R65C02
+  -- 65C02: wdc65c02 core (W65C02S-style, one bus access per cycle).
+  --   ce = CPU_EN: the PHASE_ZERO falling-edge pulse; on it the core samples
+  --        din and launches the next cycle's address/write - the exact edge
+  --        R65C02's enable used, so machine RAM/ROM timing is unchanged.
+  --   SoC-specific outputs and the savestate bus are tied off.
+  cpu65c02 : component wdc65c02
+    generic map (
+      WDC_MODE => "1"
+    )
     port map (
-        reset => not reset,
-        clk => CLK_14M,
-        enable => CPU_EN and (not CPU_WAIT),
-        nmi_n => NMI_N,
-        irq_n => IRQ_N,
-        di => D_IN,
-        do => R65C02_DO,
-        addr => R65C02_A,
-        nwe => R65C02_WE_N
+      clk         => CLK_14M,
+      ce          => CPU_EN,
+      ce_n        => '0',
+      reset       => reset,
+      stall       => '0',
+      irq_n       => IRQ_N,
+      nmi_n       => NMI_N,
+      rdy         => not CPU_WAIT,
+      stp_nop     => '1',
+      addr        => N65C02_A,
+      dout        => N65C02_DO,
+      din         => std_logic_vector(D_IN),
+      we          => N65C02_WE,
+      sync        => N65C02_SYNC,
+      vector_pull => N65C02_VECTOR_PULL,
+      int_seq     => N65C02_INT_SEQ,
+      rti_done    => N65C02_RTI_DONE,
+      in_wai      => N65C02_IN_WAI,
+      in_stp      => N65C02_IN_STP,
+      ss_addr     => (others => '0'),
+      ss_wdata    => (others => '0'),
+      ss_wren     => '0',
+      ss_rdata    => N65C02_SS_RDATA
     );
 
   -- Original Apple had asynchronous ROMs.  We use a synchronous ROM
