@@ -21,7 +21,8 @@ set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jt6805_regs.v
 set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jt6805_ctrl.v
 set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jt6805_alu.v
 set_global_assignment -name VERILOG_FILE rtl/mouse/jt6805/jtframe_6805mcu.v
-set_global_assignment -name VERILOG_FILE rtl/clock_card.v
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/no_slot_clock.sv
+set_global_assignment -name SYSTEMVERILOG_FILE rtl/nsc_ticker.sv
 set_global_assignment -name VERILOG_FILE rtl/rom.v
 set_global_assignment -name VHDL_FILE rtl/spram.vhd
 set_global_assignment -name VERILOG_FILE rtl/apple2_font_rom.v

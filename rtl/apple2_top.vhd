@@ -182,22 +182,32 @@ architecture arch of apple2_top is
 
   end component;
   
-  component clock_card is
+  -- No Slot Clock (NSC) — replaces the old clock_card. Verilog modules;
+-- see NSC_PORT_NOTES.md in Apple-II-Verilog_MiSTer for protocol notes.
+component nsc_ticker is
     port (
-        CLK_14M         : in std_logic;
-        CLK_2M          : in std_logic;
-        PH_2            : in std_logic;
-        IO_SELECT_N     : in std_logic;
-        DEVICE_SELECT_N : in std_logic;
-        IO_STROBE_N     : in std_logic;
-        ADDRESS         : std_logic_vector(15 downto 0);
-        RW_N            : in std_logic;
-        RESET           : in std_logic;
-		  OE              : out std_logic;
-        DATA_IN         : in std_logic_vector(7 downto 0);
-        DATA_OUT        : out std_logic_vector(7 downto 0);
-        RTC             : in std_logic_vector(64 downto 0));
-  end component;
+      clk      : in  std_logic;
+      rst      : in  std_logic;
+      rtc      : in  std_logic_vector(64 downto 0);
+      time_bcd : out std_logic_vector(63 downto 0);
+      time_en  : out std_logic
+    );
+end component;
+
+component no_slot_clock is
+    port (
+      clk           : in  std_logic;
+      rst           : in  std_logic;
+      strobe        : in  std_logic;
+      addr          : in  std_logic_vector(15 downto 0);
+      rw            : in  std_logic;
+      slot_sel      : in  std_logic;
+      input_time    : in  std_logic_vector(83 downto 0);
+      input_time_en : in  std_logic;
+      wr_data       : out std_logic_vector(7 downto 0);
+      wr_data_en    : out std_logic
+    );
+end component;
 
   component keyboard is
     port (
@@ -326,8 +336,10 @@ architecture arch of apple2_top is
   signal SSC_ROM_EN : std_logic;
   signal SSC_DO     : unsigned(7 downto 0);
 
-  signal CLOCK_DO   : unsigned(7 downto 0);
+  signal CLOCK_DO   : std_logic_vector(7 downto 0);
   signal CLOCK_OE   : std_logic;
+  signal nsc_time_bcd : std_logic_vector(63 downto 0);
+  signal nsc_time_en  : std_logic;
 
   signal MOUSE_4_DO:  unsigned(7 downto 0);
   signal MOUSE_4_OE: std_logic;
@@ -444,7 +456,7 @@ begin
         PSG_5_DO when psg_5_oe = '1'  else
         MOUSE_4_DO when MOUSE_4_OE = '1' else
         MOUSE_5_DO when MOUSE_5_OE = '1' else
-        CLOCK_DO when CLOCK_OE = '1' else
+        unsigned(CLOCK_DO) when CLOCK_OE = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
@@ -723,21 +735,40 @@ begin
   );
 	
 	
-	clock : component clock_card
-  port map (
-	  CLK_14M         => CLK_14M,
-	  CLK_2M          => CLK_2M,
-	  PH_2            => PHASE_ZERO,
-	  IO_SELECT_N     => not IO_SELECT(1),
-	  DEVICE_SELECT_N => not DEVICE_SELECT(1),
-	  IO_STROBE_N     => NOT IO_STROBE,
-	  ADDRESS         => std_logic_vector(ADDR),
-	  RW_N            => not cpu_we,
-	  RESET           => reset,
-	  DATA_IN         => std_logic_vector(D),
-	  unsigned(DATA_OUT) => CLOCK_DO,
-	  OE              => CLOCK_OE,
-	  RTC             => RTC
+	-- No Slot Clock (NSC): DS1216E-style software time interface hiding under
+	-- each slot's ROM page at offsets $00-$07 (replaces the old clock_card;
+	-- see NSC_PORT_NOTES.md in Apple-II-Verilog_MiSTer). nsc_ticker supplies
+	-- BCD time/date (HPS RTC reload + free-running calendar); no_slot_clock
+	-- (BSD port of jtflanagan/AppleTini's module) implements the 64-write
+	-- unlock / 64-bit readout protocol on the bus.
+	nsc_tkr : component nsc_ticker
+	port map (
+	  clk      => CLK_14M,
+	  rst      => reset,
+	  rtc      => RTC,
+	  time_bcd => nsc_time_bcd,
+	  time_en  => nsc_time_en
+	  );
+
+	-- Reachable from any slot 1-6 wide window ($C1xx-$C7xx; $C3xx only when
+	-- C3ROM is set) or the $C8xx-$CFFF slot-ROM window (IO_STROBE decode).
+	-- The stock driver probes slots 3,1,2,4-7 then internal, so with the
+	-- default C3ROM=0 it finds the NSC at $C1xx. The module itself restricts
+	-- to offsets $00-$07.
+	nsc : component no_slot_clock
+	port map (
+	  clk           => CLK_14M,
+	  rst           => reset,
+	  strobe        => PHASE_ZERO_R,
+	  addr          => std_logic_vector(ADDR),
+	  rw            => not cpu_we,
+	  slot_sel      => IO_SELECT(6) or IO_SELECT(5) or IO_SELECT(4) or
+	                   IO_SELECT(3) or IO_SELECT(2) or IO_SELECT(1) or
+	                   IO_STROBE,
+	  input_time    => "00000000000000000000" & nsc_time_bcd,
+	  input_time_en => nsc_time_en,
+	  wr_data       => CLOCK_DO,
+	  wr_data_en    => CLOCK_OE
 	  );
 
 
