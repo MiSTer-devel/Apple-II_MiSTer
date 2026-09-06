@@ -144,7 +144,11 @@ dpram #(13,8) floppy_dpram
         .address_b(ram_addr),
         .wren_b(ram_we),
         .data_b(ram_di),
-        .q_b(ram_do)
+        .q_b(ram_do),
+        // dpram.v has no input initializers (Quartus Error 10231):
+        // connect the enables explicitly, matching the VHDL port defaults.
+        .enable_a(1'b1),
+        .enable_b(1'b1)
 
 );
 

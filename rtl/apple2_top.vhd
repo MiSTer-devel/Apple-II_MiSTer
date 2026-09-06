@@ -199,6 +199,29 @@ architecture arch of apple2_top is
         RTC             : in std_logic_vector(64 downto 0));
   end component;
 
+  component keyboard is
+    port (
+      CLK_14M  : in std_logic;
+      PS2_Key  : in std_logic_vector(10 downto 0);
+      virtual_active       : in std_logic;
+      virtual_event        : in std_logic;
+      virtual_pressed      : in std_logic;
+      virtual_code         : in std_logic_vector(6 downto 0);
+      virtual_control      : in std_logic;
+      virtual_open_apple   : in std_logic;
+      virtual_closed_apple : in std_logic;
+      reads    : in std_logic;
+      reset    : in std_logic;
+      akd      : buffer std_logic;
+      K        : out unsigned(7 downto 0);
+      open_apple:    out std_logic;
+      closed_apple:  out std_logic;
+      soft_reset:    out std_logic;
+      video_toggle:  out std_logic;
+      palette_toggle:out std_logic
+    );
+  end component;
+
   component disk_ii is
     port (
       CLK_14M        : in  std_logic;
@@ -500,7 +523,7 @@ begin
 	 ioctl_wait => ioctl_wait
     );
 
-  keyboard : entity work.keyboard port map (
+  kbd : keyboard port map (
     PS2_Key  => PS2_Key,
     virtual_active => virtual_keyboard_active,
     virtual_event => virtual_keyboard_event,
