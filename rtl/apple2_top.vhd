@@ -374,6 +374,18 @@ end component;
 
   
   signal audio       : unsigned(9 downto 0);
+  -- 3x 10-bit sum needs 11 bits (765+765+512=2042); saturate instead of
+  -- truncating. Single-MB usage is bit-identical to the old wrap.
+  signal audio_sum_l : unsigned(10 downto 0);
+  signal audio_sum_r : unsigned(10 downto 0);
+  -- TODO item 3.2/3.3: box-average the $C030 speaker bit at 14.318 MHz into
+  -- ~48 kHz samples (298 clocks = 20.8 us) so fast toggles average out
+  -- instead of aliasing from point sampling. Duty maps to 0..512 (half-
+  -- scale, 4x the old 0..128 level); the framework DC blocker centers it.
+  signal spk_bit : std_logic := '0';
+  signal spk_cnt : unsigned(8 downto 0) := (others => '0');
+  signal spk_sum : unsigned(8 downto 0) := (others => '0');
+  signal spk_avg : std_logic_vector(9 downto 0) := (others => '0');
 
   signal joyx       : std_logic;
   signal joyy       : std_logic;
@@ -506,7 +518,7 @@ begin
 	 
     saturn_5_inslot=> saturn_5_inslot,
 	 
-    speaker        => audio(7)
+    speaker        => spk_bit
     );
 
   tv : component vga_controller port map (
@@ -773,9 +785,33 @@ begin
 
 
 
-  audio(6 downto 0) <= (others => '0');
-  audio(9 downto 8) <= (others => '0');
-  AUDIO_R <= std_logic_vector(psg_4_audio_r + psg_5_audio_r + audio);
-  AUDIO_L <= std_logic_vector(psg_4_audio_l + psg_5_audio_l + audio);
+  speaker_average: process (CLK_14M) is
+    variable v_sum  : unsigned(8 downto 0);
+    variable v_prod : unsigned(17 downto 0);
+    variable v_avg  : unsigned(17 downto 0);
+  begin
+    if rising_edge(CLK_14M) then
+      v_sum := spk_sum;
+      if spk_bit = '1' then
+        v_sum := v_sum + 1;
+      end if;
+      if spk_cnt = 297 then
+        v_prod := v_sum & "000000000";   -- *512, max 298*512=152576 < 2^18
+        v_avg  := v_prod / 298;          -- max 512
+        spk_avg <= std_logic_vector(v_avg(9 downto 0));
+        spk_sum <= (others => '0');
+        spk_cnt <= (others => '0');
+      else
+        spk_sum <= v_sum;
+        spk_cnt <= spk_cnt + 1;
+      end if;
+    end if;
+  end process speaker_average;
+
+  audio <= unsigned(spk_avg);
+  audio_sum_l <= ("0" & psg_4_audio_l) + ("0" & psg_5_audio_l) + ("0" & audio);
+  audio_sum_r <= ("0" & psg_4_audio_r) + ("0" & psg_5_audio_r) + ("0" & audio);
+  AUDIO_L <= (others => '1') when audio_sum_l(10) = '1' else std_logic_vector(audio_sum_l(9 downto 0));
+  AUDIO_R <= (others => '1') when audio_sum_r(10) = '1' else std_logic_vector(audio_sum_r(9 downto 0));
 
 end arch;
