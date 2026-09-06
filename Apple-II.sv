@@ -76,15 +76,10 @@ parameter CONF_STR = {
 	"P1-;",
 	"P1O5,CPU,65C02,6502;",
 	"P1OM,PAL Mode,NTSC,PAL;",
+	"P1oC,Pause when OSD is open,Off,On;",
 	"P1-;",
 	"P1ON,Video Rom,US,LOCAL;",
 	"P1F1,BIN,Load 8k Video ROM;", 
-	"P1-;",
-	"P1oA,Virtual keyboard,Off,On;",
-	"P1o89,Keypad visibility,100%,75%,50%,25%;",
-	"P1-;",
-	"P1oB,Joystick to keys,Off,On;",
-	"P1F3,A2K,Load Joy Map;",
 	"P1-;",
 	"P2,Audio & Video;",
 	"P2-;",	
@@ -111,6 +106,14 @@ parameter CONF_STR = {
 	"P3o3,Disk LED overlay,Yes,No;",
 	"P3o12,Disk drive sound,Off,On (1x),On (2x),On (4x);",
 	"P3-;",
+	"P4,Virtual keyboard;",
+	"P4-;",
+	"P4oA,Virtual keyboard,Off,On;",
+	"P4o89,Keypad visibility,100%,75%,50%,25%;",
+	"P4-;",
+	"P4oB,Joystick to keys,Off,On;",
+	"P4F3,A2K,Load Joy Map;",
+	"P4-;",
 	"-;",
 	"R0,Cold Reset;",
 	"JA,Fire 1,Fire 2,Keyboard On,Keyb. visibility,Move keyboard,Keyboard Enter,Keyboard Space;",
@@ -326,6 +329,7 @@ reg       video_toggle = 0;
 reg       palette_toggle = 0;
 wire [1:0] screen_mode;
 wire [1:0] palette_mode;
+wire osd_pause = status[44] && OSD_STATUS;
 wire virtual_keyboard_enabled = status[42];
 wire [1:0] virtual_keyboard_visibility = status[41:40];
 wire [1:0] virtual_keyboard_transparency_req = virtual_keyboard_visibility + 1'd1;
@@ -368,6 +372,7 @@ apple2_top apple2_top
 
 	.CPU_WAIT(cpu_wait_hdd /*| cpu_wait_fdd*/),
 	.cpu_type(~status[5]),
+	.cpu_stall(osd_pause),
 
 	.reset_cold(RESET | status[0]),
 	.reset_warm(buttons[1] | virtual_keyboard_reset),

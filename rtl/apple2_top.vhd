@@ -32,6 +32,7 @@ port (
 	soft_reset     : buffer std_logic;
 	cpu_type       : in std_logic;
 	CPU_WAIT       : in std_logic;
+	cpu_stall      : in std_logic;
 
 	-- main RAM
 	ram_we         : out std_logic;
@@ -516,6 +517,7 @@ begin
     FLASH_CLK      => flash_clk(22),
     reset          => reset,
     cpu            => cpu_type,
+    STALL          => cpu_stall,
     ADDR           => ADDR,
     ram_addr       => a_ram,
     D              => D,

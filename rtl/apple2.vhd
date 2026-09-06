@@ -25,6 +25,7 @@ entity apple2 is
     FLASH_CLK      : in  std_logic;        -- approx. 2 Hz flashing char clock
     reset          : in  std_logic;
     cpu            : in  std_logic;              -- 0 - 6502, 1 - 65C02
+    STALL          : in  std_logic;              -- 1: hold the CPU in place (OSD pause)
     ADDR           : out unsigned(15 downto 0);  -- CPU address
     ram_addr       : out unsigned(17 downto 0);  -- RAM address
     D              : out unsigned(7 downto 0);   -- Data to RAM
@@ -201,6 +202,9 @@ architecture rtl of apple2 is
   signal N65C02_IN_WAI : std_logic;
   signal N65C02_IN_STP : std_logic;
   signal N65C02_SS_RDATA : std_logic_vector(63 downto 0);
+  -- SoC-specific output collectors (see unused_ok assignments below)
+  signal nmos6502_unused_ok : std_logic;
+  signal wdc65c02_unused_ok : std_logic;
   signal we : std_logic;
 
   -- Main ROM signals
@@ -687,7 +691,7 @@ begin
       ce          => CPU_EN,
       ce_n        => '0',
       reset       => reset,
-      stall       => '0',
+      stall       => STALL,
       irq_n       => IRQ_N,
       nmi_n       => NMI_N,
       rdy         => not CPU_WAIT,
@@ -729,7 +733,7 @@ begin
       ce          => CPU_EN,
       ce_n        => '0',
       reset       => reset,
-      stall       => '0',
+      stall       => STALL,
       irq_n       => IRQ_N,
       nmi_n       => NMI_N,
       rdy         => not CPU_WAIT,
@@ -749,6 +753,18 @@ begin
       ss_wren     => '0',
       ss_rdata    => N65C02_SS_RDATA
     );
+
+  -- SoC-specific core outputs are unused on the Apple II. Collect them into
+  -- a reduction so synthesis sees them as read (mirrors the &{1'b0,...}
+  -- "unused_ok" idiom in the verilog-repo apple2.v). The two unused_ok
+  -- signals remain as debug probes and are the only intended 10036 warnings.
+  nmos6502_unused_ok <= N6502_SYNC and N6502_VECTOR_PULL and N6502_ML_N and
+                        N6502_PHI1O and N6502_PHI2O and N6502_BUS_OE and
+                        N6502_DOUT_OE and N6502_INT_SEQ and N6502_RTI_DONE and
+                        N6502_IN_WAI and N6502_IN_STP and N6502_SS_RDATA(0);
+  wdc65c02_unused_ok <= N65C02_SYNC and N65C02_VECTOR_PULL and
+                        N65C02_INT_SEQ and N65C02_RTI_DONE and
+                        N65C02_IN_WAI and N65C02_IN_STP and N65C02_SS_RDATA(0);
 
   -- Original Apple had asynchronous ROMs.  We use a synchronous ROM
   -- that needs its address earlier, hence the odd clock.
