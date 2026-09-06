@@ -500,7 +500,7 @@ begin
   -- fill is only an artifact fix in GR (low-res) and DHGR; in HGR the
   -- neutral runs are real content, so the fill is disabled there. The DUT
   -- falls back to the exact run-fill-off path when this is low.
-  RUN_FILL_OK <= not HIRES_MODE or DHIRES_MODE;
+  RUN_FILL_OK <= not HIRES_MODE or not DHIRES_MODE;
 
   hram_ctrl: process (CLK_14M, reset)
   begin

@@ -79,8 +79,9 @@ port (
   virtual_control : in std_logic;
   virtual_open_apple : in std_logic;
   virtual_closed_apple : in std_logic;
-	joy            : in  std_logic_vector(5 downto 0);
+	joy            : in  std_logic_vector(7 downto 0);
 	joy_an         : in  std_logic_vector(15 downto 0);
+	JOY_TO_KEY_EN  : in  std_logic;  -- OSD: joystick-to-keys enable (P3oB)
 
 
 	-- disk control
@@ -211,6 +212,28 @@ component no_slot_clock is
     );
 end component;
 
+  -- Joy-to-key (rtl/joy_to_key.v): maps digital joystick bits to Apple II
+  -- keystrokes. NOTE: the keyboard component ports below and the joy_to_key
+  -- instantiation are unconditional here because Quartus 17.0.2 does not
+  -- process Verilog-style ifdef directives in VHDL; the Verilog side is
+  -- gated by the JOY_TO_KEY macro, so the macro must stay defined for this
+  -- design.
+  component joy_to_key is
+    port (
+      clk            : in  std_logic;
+      reset          : in  std_logic;
+      enable         : in  std_logic;
+      joy            : in  std_logic_vector(7 downto 0);
+      ioctl_download : in  std_logic;
+      ioctl_wr       : in  std_logic;
+      ioctl_addr     : in  std_logic_vector(24 downto 0);
+      ioctl_data     : in  std_logic_vector(7 downto 0);
+      ioctl_index    : in  std_logic_vector(7 downto 0);
+      joy_key_press  : out std_logic;
+      joy_key_code   : out std_logic_vector(6 downto 0)
+    );
+  end component;
+
   component keyboard is
     port (
       CLK_14M  : in std_logic;
@@ -222,6 +245,8 @@ end component;
       virtual_control      : in std_logic;
       virtual_open_apple   : in std_logic;
       virtual_closed_apple : in std_logic;
+      joy_key_code   : in std_logic_vector(6 downto 0);
+      joy_key_press  : in std_logic;
       reads    : in std_logic;
       reset    : in std_logic;
       akd      : buffer std_logic;
@@ -395,6 +420,8 @@ end component;
 
   signal joyx       : std_logic;
   signal joyy       : std_logic;
+  signal joy_key_press : std_logic;
+  signal joy_key_code  : std_logic_vector(6 downto 0);
   signal pdl_strobe : std_logic;
   signal open_apple : std_logic;
   signal closed_apple : std_logic;
@@ -557,6 +584,24 @@ begin
 	 ioctl_wait => ioctl_wait
     );
 
+  -- Joy-to-key: map the digital joystick to Apple II keystrokes. Sits next
+  -- to the keyboard (CLK_14M domain) and injects one-shot key presses
+  -- independently of the OSK virtual path, so PS/2 and the raw joystick are
+  -- both untouched. Runtime enable from the OSD (P3oB, "Joystick to keys").
+  joy_to_key_inst : joy_to_key port map (
+    clk            => CLK_14M,
+    reset          => reset_cold,
+    enable         => JOY_TO_KEY_EN,
+    joy            => joy,
+    ioctl_download => ioctl_download,
+    ioctl_wr       => ioctl_wr,
+    ioctl_addr     => ioctl_addr,
+    ioctl_data     => ioctl_data,
+    ioctl_index    => ioctl_index,
+    joy_key_press  => joy_key_press,
+    joy_key_code   => joy_key_code
+  );
+
   kbd : keyboard port map (
     PS2_Key  => PS2_Key,
     virtual_active => virtual_keyboard_active,
@@ -577,7 +622,9 @@ begin
     closed_apple => closed_apple,
     soft_reset => soft_reset,
     video_toggle => video_switch,
-	palette_toggle => palette_switch
+	palette_toggle => palette_switch,
+    joy_key_code  => joy_key_code,
+    joy_key_press => joy_key_press
     );
 
 	 

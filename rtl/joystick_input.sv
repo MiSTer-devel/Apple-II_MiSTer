@@ -35,7 +35,7 @@ module joystick_input #(
 	input  wire  [2:0] x_center,
 	input  wire        relative_mode,
 	output wire [15:0] joy_an,
-	output wire  [5:0] joy
+	output wire  [7:0] joy
 );
 
 localparam integer RELATIVE_UPDATE_BITS = $clog2(RELATIVE_UPDATE_CYCLES);
@@ -69,61 +69,83 @@ wire [7:0] absolute_x = absolute_x_adjusted > 9'sd127 ? 8'h7F :
 wire [15:0] absolute_axes = {absolute_x, absolute_untrimmed[7:0]};
 
 reg [RELATIVE_UPDATE_BITS-1:0] relative_update_counter = 0;
-reg signed [7:0] relative_x = 0;
-reg signed [7:0] relative_y = 0;
+reg signed [8:0] relative_x = 0;
+reg signed [8:0] relative_y = 0;
 reg relative_mode_d = 0;
-reg signed [8:0] relative_x_delta;
-reg signed [8:0] relative_y_delta;
+reg signed [4:0] relative_x_delta;
+reg signed [4:0] relative_y_delta;
 
 always @(*) begin
-	relative_x_delta = 9'sd0;
-	relative_y_delta = 9'sd0;
+	relative_x_delta = 5'sd0;
+	relative_y_delta = 5'sd0;
 
 	if(joystick_digital[0] && !joystick_digital[1])
-		relative_x_delta = 9'sd6;
+		relative_x_delta = 5'sd3;
 	else if(joystick_digital[1] && !joystick_digital[0])
-		relative_x_delta = -9'sd6;
-	else if($signed(axes[15:8]) > 8'sd111)
-		relative_x_delta = 9'sd6;
-	else if($signed(axes[15:8]) > 8'sd79)
-		relative_x_delta = 9'sd4;
-	else if($signed(axes[15:8]) > 8'sd47)
-		relative_x_delta = 9'sd2;
+		relative_x_delta = -5'sd3;
+	else if($signed(axes[15:8]) > 8'sd112)
+		relative_x_delta = 5'sd6;
+	else if($signed(axes[15:8]) > 8'sd96)
+		relative_x_delta = 5'sd5;
+	else if($signed(axes[15:8]) > 8'sd80)
+		relative_x_delta = 5'sd4;
+	else if($signed(axes[15:8]) > 8'sd64)
+		relative_x_delta = 5'sd3;
+	else if($signed(axes[15:8]) > 8'sd40)
+		relative_x_delta = 5'sd2;
 	else if($signed(axes[15:8]) > 8'sd16)
-		relative_x_delta = 9'sd1;
-	else if($signed(axes[15:8]) < -8'sd111)
-		relative_x_delta = -9'sd6;
-	else if($signed(axes[15:8]) < -8'sd79)
-		relative_x_delta = -9'sd4;
-	else if($signed(axes[15:8]) < -8'sd47)
-		relative_x_delta = -9'sd2;
+		relative_x_delta = 5'sd1;
+	else if($signed(axes[15:8]) < -8'sd112)
+		relative_x_delta = -5'sd6;
+	else if($signed(axes[15:8]) < -8'sd96)
+		relative_x_delta = -5'sd5;
+	else if($signed(axes[15:8]) < -8'sd80)
+		relative_x_delta = -5'sd4;
+	else if($signed(axes[15:8]) < -8'sd64)
+		relative_x_delta = -5'sd3;
+	else if($signed(axes[15:8]) < -8'sd40)
+		relative_x_delta = -5'sd2;
 	else if($signed(axes[15:8]) < -8'sd16)
-		relative_x_delta = -9'sd1;
+		relative_x_delta = -5'sd1;
 
 	if(joystick_digital[2] && !joystick_digital[3])
-		relative_y_delta = 9'sd6;
+		relative_y_delta = 5'sd3;
 	else if(joystick_digital[3] && !joystick_digital[2])
-		relative_y_delta = -9'sd6;
-	else if($signed(axes[7:0]) > 8'sd111)
-		relative_y_delta = 9'sd6;
-	else if($signed(axes[7:0]) > 8'sd79)
-		relative_y_delta = 9'sd4;
-	else if($signed(axes[7:0]) > 8'sd47)
-		relative_y_delta = 9'sd2;
+		relative_y_delta = -5'sd3;
+	else if($signed(axes[7:0]) > 8'sd112)
+		relative_y_delta = 5'sd6;
+	else if($signed(axes[7:0]) > 8'sd96)
+		relative_y_delta = 5'sd5;
+	else if($signed(axes[7:0]) > 8'sd80)
+		relative_y_delta = 5'sd4;
+	else if($signed(axes[7:0]) > 8'sd64)
+		relative_y_delta = 5'sd3;
+	else if($signed(axes[7:0]) > 8'sd40)
+		relative_y_delta = 5'sd2;
 	else if($signed(axes[7:0]) > 8'sd16)
-		relative_y_delta = 9'sd1;
-	else if($signed(axes[7:0]) < -8'sd111)
-		relative_y_delta = -9'sd6;
-	else if($signed(axes[7:0]) < -8'sd79)
-		relative_y_delta = -9'sd4;
-	else if($signed(axes[7:0]) < -8'sd47)
-		relative_y_delta = -9'sd2;
+		relative_y_delta = 5'sd1;
+	else if($signed(axes[7:0]) < -8'sd112)
+		relative_y_delta = -5'sd6;
+	else if($signed(axes[7:0]) < -8'sd96)
+		relative_y_delta = -5'sd5;
+	else if($signed(axes[7:0]) < -8'sd80)
+		relative_y_delta = -5'sd4;
+	else if($signed(axes[7:0]) < -8'sd64)
+		relative_y_delta = -5'sd3;
+	else if($signed(axes[7:0]) < -8'sd40)
+		relative_y_delta = -5'sd2;
 	else if($signed(axes[7:0]) < -8'sd16)
-		relative_y_delta = -9'sd1;
+		relative_y_delta = -5'sd1;
 end
 
-wire signed [8:0] relative_x_next = relative_x + relative_x_delta;
-wire signed [8:0] relative_y_next = relative_y + relative_y_delta;
+wire signed [9:0] relative_x_next =
+	{relative_x[8], relative_x} + {{5{relative_x_delta[4]}}, relative_x_delta};
+wire signed [9:0] relative_y_next =
+	{relative_y[8], relative_y} + {{5{relative_y_delta[4]}}, relative_y_delta};
+wire signed [8:0] relative_x_output = relative_x[8] ?
+	(relative_x + 9'sd1) >>> 1 : relative_x >>> 1;
+wire signed [8:0] relative_y_output = relative_y[8] ?
+	(relative_y + 9'sd1) >>> 1 : relative_y >>> 1;
 
 always @(posedge clk) begin
 	relative_mode_d <= relative_mode;
@@ -135,10 +157,10 @@ always @(posedge clk) begin
 	end else if(relative_mode) begin
 		if(relative_update_counter == RELATIVE_UPDATE_CYCLES - 1) begin
 			relative_update_counter <= 0;
-			relative_x <= relative_x_next > 9'sd127 ? 8'sh7F :
-				relative_x_next < -9'sd128 ? 8'sh80 : relative_x_next[7:0];
-			relative_y <= relative_y_next > 9'sd127 ? 8'sh7F :
-				relative_y_next < -9'sd128 ? 8'sh80 : relative_y_next[7:0];
+			relative_x <= relative_x_next > 10'sd254 ? 9'sh0FE :
+				relative_x_next < -10'sd256 ? 9'sh100 : relative_x_next[8:0];
+			relative_y <= relative_y_next > 10'sd254 ? 9'sh0FE :
+				relative_y_next < -10'sd256 ? 9'sh100 : relative_y_next[8:0];
 		end else begin
 			relative_update_counter <= relative_update_counter + 1'd1;
 		end
@@ -147,8 +169,9 @@ always @(posedge clk) begin
 	end
 end
 
-assign joy_an = relative_mode ? {relative_x, relative_y} : absolute_axes;
-assign joy = joystick_digital[5:0] &
-	{2'b11, {2{~|axes[7:0]}}, {2{~|axes[15:8]}}};
+assign joy_an = relative_mode ?
+	{relative_x_output[7:0], relative_y_output[7:0]} : absolute_axes;
+assign joy = joystick_digital[7:0] &
+	{2'b11, 2'b11, {2{~|axes[7:0]}}, {2{~|axes[15:8]}}};
 
 endmodule

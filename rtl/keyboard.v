@@ -29,6 +29,10 @@ module keyboard(
     soft_reset,
     video_toggle,
     palette_toggle
+`ifdef JOY_TO_KEY
+    , joy_key_code
+    , joy_key_press
+`endif
 );
     
     input            CLK_14M;
@@ -49,6 +53,10 @@ module keyboard(
     output reg       soft_reset;
     output reg       video_toggle;   // signal to control change of video modes
     output reg       palette_toggle; // signal to control change of paleetes
+`ifdef JOY_TO_KEY
+    input [6:0]      joy_key_code;   // joy-to-key: code of the pressed key
+    input            joy_key_press;  // joy-to-key: one-shot press pulse
+`endif
     
     
     wire [10:0]      rom_addr;
@@ -68,6 +76,10 @@ module keyboard(
     reg              virtual_active_d;
     reg [6:0]        virtual_code_latched;
     reg              virtual_data;
+`ifdef JOY_TO_KEY
+    reg [6:0]        joy_code_latched;
+    reg              joy_valid;
+`endif
     
     reg [22:0]       rep_timer;
     
@@ -111,8 +123,17 @@ module keyboard(
         .q(rom_out)
     );
  */   
+`ifdef JOY_TO_KEY
+    // Joy-to-key path is independent of virtual_active, so the PS/2 keyboard
+    // keeps working. A joy key shows on the K bus until the CPU reads it
+    // (reads clears key_pressed + joy_valid), then the bus reverts to PS/2.
+    assign K = virtual_data ? {key_pressed, virtual_code_latched} :
+               joy_valid    ? {key_pressed, joy_code_latched}    :
+                              {key_pressed, rom_out[6:0]};
+`else
     assign K = virtual_data ? {key_pressed, virtual_code_latched} :
                               {key_pressed, rom_out[6:0]};
+`endif
     
     
     always @(posedge CLK_14M or posedge reset)
@@ -213,12 +234,32 @@ module keyboard(
             virtual_active_d <= 1'b0;
             virtual_code_latched <= 7'b0;
             virtual_data <= 1'b0;
+`ifdef JOY_TO_KEY
+            joy_code_latched <= 7'b0;
+            joy_valid <= 1'b0;
+`endif
             rep_timer <= 23'b0;
         end
         else 
         begin
             virtual_active_d <= virtual_active;
             if (reads == 1'b1) key_pressed <= 1'b0;
+`ifdef JOY_TO_KEY
+            if (reads == 1'b1) joy_valid <= 1'b0;
+            if (joy_key_press) begin
+                joy_code_latched <= joy_key_code;
+                joy_valid        <= 1'b1;
+                key_pressed      <= 1'b1;
+                akd              <= 1'b1;
+                rep_timer        <= 23'd7000000;		// 0.5s, like a real key-down
+            end
+            // Joy key is a one-shot, not a held key: clear the "key down" flag
+            // (akd) once the joy key has been read, so the PS/2 auto-repeat
+            // engine (gated by akd) stops instead of re-asserting key_pressed
+            // every 65ms and streaming rom_out (the last PS/2 key) forever.
+            if (reads == 1'b1 && joy_valid)
+                akd <= 1'b0;
+`endif
             if (virtual_active)
             begin
                 state <= states_IDLE;

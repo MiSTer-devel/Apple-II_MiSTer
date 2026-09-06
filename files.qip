@@ -32,6 +32,7 @@ set_global_assignment -name VERILOG_FILE rtl/disk_ii.v
 set_global_assignment -name VERILOG_FILE rtl/drive_ii.v
 set_global_assignment -name VHDL_FILE rtl/dpram.vhd
 set_global_assignment -name VERILOG_FILE rtl/keyboard.v
+set_global_assignment -name VERILOG_FILE rtl/osk/joy_to_key.v
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/floppy_track.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/joystick_input.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/osk/virtual_keyboard_controller.sv
