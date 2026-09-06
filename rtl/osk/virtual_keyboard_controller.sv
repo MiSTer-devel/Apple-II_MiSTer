@@ -16,7 +16,7 @@ module virtual_keyboard_controller #(
 	input  wire        clk,
 	input  wire        reset,
 	input  wire [10:0] ps2_key,
-	input  wire [9:0]  joystick,
+	input  wire [10:0] joystick,
 	input  wire        enabled,
 	output reg  [10:0] filtered_ps2_key = 0,
 	output reg         active = 0,
@@ -84,7 +84,7 @@ reg virtual_key_down = 0;
 reg [RESET_BITS-1:0] reset_counter = 0;
 reg [HOLD_BITS-1:0] hold_counter = 0;
 reg [2:0] command = CMD_NONE;
-reg [5:0] joystick_buttons_d = 0;
+reg [6:0] joystick_buttons_d = 0;
 reg [2:0] virtual_key_source = SOURCE_NONE;
 reg enabled_d = 0;
 reg physical_left_shift = 0;
@@ -108,10 +108,11 @@ wire joystick_fire_pressed = joystick[4] && !joystick_buttons_d[0];
 wire joystick_fire_released = !joystick[4] && joystick_buttons_d[0];
 wire visibility_pressed = joystick[6] && !joystick_buttons_d[2];
 wire transparency_pressed = joystick[7] && !joystick_buttons_d[3];
-wire enter_pressed = joystick[8] && !joystick_buttons_d[4];
-wire enter_released = !joystick[8] && joystick_buttons_d[4];
-wire space_pressed = joystick[9] && !joystick_buttons_d[5];
-wire space_released = !joystick[9] && joystick_buttons_d[5];
+wire move_pressed = joystick[8] && !joystick_buttons_d[4];
+wire enter_pressed = joystick[9] && !joystick_buttons_d[5];
+wire enter_released = !joystick[9] && joystick_buttons_d[5];
+wire space_pressed = joystick[10] && !joystick_buttons_d[6];
+wire space_released = !joystick[10] && joystick_buttons_d[6];
 wire key_down = ps2_key[9];
 wire extended = ps2_key[8];
 wire [7:0] scan_code = ps2_key[7:0];
@@ -429,7 +430,7 @@ always @(posedge clk) begin
 		reset_counter <= 0;
 		hold_counter <= 0;
 		command <= CMD_NONE;
-		joystick_buttons_d <= joystick[9:4];
+		joystick_buttons_d <= joystick[10:4];
 		enabled_d <= 0;
 		physical_left_shift <= 0;
 		physical_right_shift <= 0;
@@ -447,7 +448,7 @@ always @(posedge clk) begin
 		back_step_elapsed_ms <= 0;
 		back_repeat_stage <= 0;
 	end else begin
-		joystick_buttons_d <= joystick[9:4];
+		joystick_buttons_d <= joystick[10:4];
 		enabled_d <= enabled;
 		if(millisecond_tick) ms_divider <= 0;
 		else ms_divider <= ms_divider + 1'd1;
@@ -538,6 +539,8 @@ always @(posedge clk) begin
 			enabled_toggle <= 1;
 		end else if(active && transparency_pressed) begin
 			transparency_cycle <= 1;
+		end else if(active && move_pressed) begin
+			overlay_top <= ~overlay_top;
 		end else if(enter_pressed && !virtual_key_down) begin
 			press_virtual_key(7'h0D, SOURCE_ENTER);
 		end else if(enter_released && virtual_key_source == SOURCE_ENTER) begin

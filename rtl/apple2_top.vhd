@@ -32,6 +32,7 @@ port (
 	soft_reset     : buffer std_logic;
 	cpu_type       : in std_logic;
 	CPU_WAIT       : in std_logic;
+	cpu_stall      : in std_logic;
 
 	-- main RAM
 	ram_we         : out std_logic;
@@ -64,6 +65,8 @@ port (
 	palette_switch : out std_logic;
 	COLOR_PALETTE  :  in std_logic_vector(1 downto 0); -- 00: Original (//e NTSC), 01: //gs, 02: AppleWin, 03: //c PAL
 	GRAY_SEAM_FIX  : in std_logic;
+	SEAM_RUN_FILL  : in std_logic;
+  SEAM_RUN_WIDE  : in std_logic;
 	NTSC_VERTICAL_COMB : in std_logic;
 	
     PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
@@ -77,8 +80,9 @@ port (
   virtual_control : in std_logic;
   virtual_open_apple : in std_logic;
   virtual_closed_apple : in std_logic;
-	joy            : in  std_logic_vector(5 downto 0);
+	joy            : in  std_logic_vector(7 downto 0);
 	joy_an         : in  std_logic_vector(15 downto 0);
+	JOY_TO_KEY_EN  : in  std_logic;  -- OSD: joystick-to-keys enable (P3oB)
 
 
 	-- disk control
@@ -182,21 +186,78 @@ architecture arch of apple2_top is
 
   end component;
   
-  component clock_card is
+  -- No Slot Clock (NSC) — replaces the old clock_card. Verilog modules;
+-- see NSC_PORT_NOTES.md in Apple-II-Verilog_MiSTer for protocol notes.
+component nsc_ticker is
     port (
-        CLK_14M         : in std_logic;
-        CLK_2M          : in std_logic;
-        PH_2            : in std_logic;
-        IO_SELECT_N     : in std_logic;
-        DEVICE_SELECT_N : in std_logic;
-        IO_STROBE_N     : in std_logic;
-        ADDRESS         : std_logic_vector(15 downto 0);
-        RW_N            : in std_logic;
-        RESET           : in std_logic;
-		  OE              : out std_logic;
-        DATA_IN         : in std_logic_vector(7 downto 0);
-        DATA_OUT        : out std_logic_vector(7 downto 0);
-        RTC             : in std_logic_vector(64 downto 0));
+      clk      : in  std_logic;
+      rst      : in  std_logic;
+      rtc      : in  std_logic_vector(64 downto 0);
+      time_bcd : out std_logic_vector(63 downto 0);
+      time_en  : out std_logic
+    );
+end component;
+
+component no_slot_clock is
+    port (
+      clk           : in  std_logic;
+      rst           : in  std_logic;
+      strobe        : in  std_logic;
+      addr          : in  std_logic_vector(15 downto 0);
+      rw            : in  std_logic;
+      slot_sel      : in  std_logic;
+      input_time    : in  std_logic_vector(83 downto 0);
+      input_time_en : in  std_logic;
+      wr_data       : out std_logic_vector(7 downto 0);
+      wr_data_en    : out std_logic
+    );
+end component;
+
+  -- Joy-to-key (rtl/joy_to_key.v): maps digital joystick bits to Apple II
+  -- keystrokes. NOTE: the keyboard component ports below and the joy_to_key
+  -- instantiation are unconditional here because Quartus 17.0.2 does not
+  -- process Verilog-style ifdef directives in VHDL; the Verilog side is
+  -- gated by the JOY_TO_KEY macro, so the macro must stay defined for this
+  -- design.
+  component joy_to_key is
+    port (
+      clk            : in  std_logic;
+      reset          : in  std_logic;
+      enable         : in  std_logic;
+      joy            : in  std_logic_vector(7 downto 0);
+      ioctl_download : in  std_logic;
+      ioctl_wr       : in  std_logic;
+      ioctl_addr     : in  std_logic_vector(24 downto 0);
+      ioctl_data     : in  std_logic_vector(7 downto 0);
+      ioctl_index    : in  std_logic_vector(7 downto 0);
+      joy_key_press  : out std_logic;
+      joy_key_code   : out std_logic_vector(6 downto 0)
+    );
+  end component;
+
+  component keyboard is
+    port (
+      CLK_14M  : in std_logic;
+      PS2_Key  : in std_logic_vector(10 downto 0);
+      virtual_active       : in std_logic;
+      virtual_event        : in std_logic;
+      virtual_pressed      : in std_logic;
+      virtual_code         : in std_logic_vector(6 downto 0);
+      virtual_control      : in std_logic;
+      virtual_open_apple   : in std_logic;
+      virtual_closed_apple : in std_logic;
+      joy_key_code   : in std_logic_vector(6 downto 0);
+      joy_key_press  : in std_logic;
+      reads    : in std_logic;
+      reset    : in std_logic;
+      akd      : buffer std_logic;
+      K        : out unsigned(7 downto 0);
+      open_apple:    out std_logic;
+      closed_apple:  out std_logic;
+      soft_reset:    out std_logic;
+      video_toggle:  out std_logic;
+      palette_toggle:out std_logic
+    );
   end component;
 
   component disk_ii is
@@ -238,6 +299,57 @@ architecture arch of apple2_top is
     );
   end component;
 
+  component vga_controller is
+    port (
+      CLK_14M            : in  std_logic;
+      VIDEO              : in  std_logic;
+      COLOR_LINE         : in  std_logic;
+      SCREEN_MODE        : in  std_logic_vector(1 downto 0);
+      COLOR_PALETTE      : in  std_logic_vector(1 downto 0);
+      GRAY_SEAM_FIX      : in  std_logic;
+      SEAM_RUN_FILL      : in  std_logic;
+      SEAM_RUN_WIDE      : in  std_logic;
+      RUN_FILL_OK        : in  std_logic;
+      NTSC_VERTICAL_COMB : in  std_logic;
+      HBL                : in  std_logic;
+      VBL                : in  std_logic;
+      VGA_HS             : out std_logic;
+      VGA_VS             : out std_logic;
+      VGA_HBL            : out std_logic;
+      VGA_VBL            : out std_logic;
+      VGA_R              : out unsigned(7 downto 0);
+      VGA_G              : out unsigned(7 downto 0);
+      VGA_B              : out unsigned(7 downto 0);
+      ioctl_addr         : in  std_logic_vector(24 downto 0);
+      ioctl_data         : in  std_logic_vector(7 downto 0);
+      ioctl_index        : in  std_logic_vector(7 downto 0);
+      ioctl_download     : in  std_logic;
+      ioctl_wr           : in  std_logic;
+      ioctl_wait         : out std_logic
+    );
+  end component;
+
+  component mockingboard is
+    port (
+      CLK_14M      : in  std_logic;
+      PHASE_ZERO   : in  std_logic;
+      PHASE_ZERO_R : in  std_logic;
+      PHASE_ZERO_F : in  std_logic;
+      I_ADDR       : in  std_logic_vector(7 downto 0);
+      I_DATA       : in  std_logic_vector(7 downto 0);
+      O_DATA       : out std_logic_vector(7 downto 0);
+      OE           : out std_logic;
+      I_RW_L       : in  std_logic;
+      O_IRQ_L      : out std_logic;
+      O_NMI_L      : out std_logic;
+      I_IOSEL_L    : in  std_logic;
+      I_RESET_L    : in  std_logic;
+      I_ENA_H      : in  std_logic;
+      O_AUDIO_L    : out std_logic_vector(9 downto 0);
+      O_AUDIO_R    : out std_logic_vector(9 downto 0)
+    );
+  end component;
+
 
   signal CLK_2M, CLK_2M_D, PHASE_ZERO, PHASE_ZERO_R, PHASE_ZERO_F : std_logic;
   signal IO_SELECT, DEVICE_SELECT : std_logic_vector(7 downto 0);
@@ -255,8 +367,10 @@ architecture arch of apple2_top is
   signal SSC_ROM_EN : std_logic;
   signal SSC_DO     : unsigned(7 downto 0);
 
-  signal CLOCK_DO   : unsigned(7 downto 0);
+  signal CLOCK_DO   : std_logic_vector(7 downto 0);
   signal CLOCK_OE   : std_logic;
+  signal nsc_time_bcd : std_logic_vector(63 downto 0);
+  signal nsc_time_en  : std_logic;
 
   signal MOUSE_4_DO:  unsigned(7 downto 0);
   signal MOUSE_4_OE: std_logic;
@@ -268,6 +382,7 @@ architecture arch of apple2_top is
   signal we_ram : std_logic;
   signal VIDEO, HBL, VBL : std_logic;
   signal COLOR_LINE : std_logic;
+  signal RUN_FILL_OK : std_logic;
   signal COLOR_LINE_CONTROL : std_logic;
   signal TEXT_MODE : std_logic;
   signal GAMEPORT : std_logic_vector(7 downto 0);
@@ -291,9 +406,23 @@ architecture arch of apple2_top is
 
   
   signal audio       : unsigned(9 downto 0);
+  -- 3x 10-bit sum needs 11 bits (765+765+512=2042); saturate instead of
+  -- truncating. Single-MB usage is bit-identical to the old wrap.
+  signal audio_sum_l : unsigned(10 downto 0);
+  signal audio_sum_r : unsigned(10 downto 0);
+  -- TODO item 3.2/3.3: box-average the $C030 speaker bit at 14.318 MHz into
+  -- ~48 kHz samples (298 clocks = 20.8 us) so fast toggles average out
+  -- instead of aliasing from point sampling. Duty maps to 0..512 (half-
+  -- scale, 4x the old 0..128 level); the framework DC blocker centers it.
+  signal spk_bit : std_logic := '0';
+  signal spk_cnt : unsigned(8 downto 0) := (others => '0');
+  signal spk_sum : unsigned(8 downto 0) := (others => '0');
+  signal spk_avg : std_logic_vector(9 downto 0) := (others => '0');
 
   signal joyx       : std_logic;
   signal joyy       : std_logic;
+  signal joy_key_press : std_logic;
+  signal joy_key_code  : std_logic_vector(6 downto 0);
   signal pdl_strobe : std_logic;
   signal open_apple : std_logic;
   signal closed_apple : std_logic;
@@ -373,7 +502,7 @@ begin
         PSG_5_DO when psg_5_oe = '1'  else
         MOUSE_4_DO when MOUSE_4_OE = '1' else
         MOUSE_5_DO when MOUSE_5_OE = '1' else
-        CLOCK_DO when CLOCK_OE = '1' else
+        unsigned(CLOCK_DO) when CLOCK_OE = '1' else
         HDD_DO when IO_SELECT(7) = '1' or DEVICE_SELECT(7) = '1' else
         SSC_DO when IO_SELECT(2) = '1' or DEVICE_SELECT(2) = '1' or SSC_ROM_EN ='1' else 
         DISK_DO;
@@ -388,6 +517,7 @@ begin
     FLASH_CLK      => flash_clk(22),
     reset          => reset,
     cpu            => cpu_type,
+    STALL          => cpu_stall,
     ADDR           => ADDR,
     ram_addr       => a_ram,
     D              => D,
@@ -402,6 +532,7 @@ begin
     PALMODE        => PALMODE,
     ROMSWITCH      => ROMSWITCH,
     COLOR_LINE     => COLOR_LINE,
+    RUN_FILL_OK    => RUN_FILL_OK,
     TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
     VBL            => VBL,
@@ -423,16 +554,19 @@ begin
 	 
     saturn_5_inslot=> saturn_5_inslot,
 	 
-    speaker        => audio(7)
+    speaker        => spk_bit
     );
 
-  tv : entity work.vga_controller port map (
+  tv : component vga_controller port map (
     CLK_14M    => CLK_14M,
     VIDEO      => VIDEO,
     COLOR_LINE => COLOR_LINE_CONTROL,
     SCREEN_MODE => SCREEN_MODE,
     COLOR_PALETTE => COLOR_PALETTE,
     GRAY_SEAM_FIX => GRAY_SEAM_FIX,
+    SEAM_RUN_FILL => SEAM_RUN_FILL,
+    SEAM_RUN_WIDE => SEAM_RUN_WIDE,
+    RUN_FILL_OK   => RUN_FILL_OK,
     NTSC_VERTICAL_COMB => NTSC_VERTICAL_COMB,
     HBL        => HBL,
     VBL        => VBL,
@@ -452,7 +586,25 @@ begin
 	 ioctl_wait => ioctl_wait
     );
 
-  keyboard : entity work.keyboard port map (
+  -- Joy-to-key: map the digital joystick to Apple II keystrokes. Sits next
+  -- to the keyboard (CLK_14M domain) and injects one-shot key presses
+  -- independently of the OSK virtual path, so PS/2 and the raw joystick are
+  -- both untouched. Runtime enable from the OSD (P3oB, "Joystick to keys").
+  joy_to_key_inst : joy_to_key port map (
+    clk            => CLK_14M,
+    reset          => reset_cold,
+    enable         => JOY_TO_KEY_EN,
+    joy            => joy,
+    ioctl_download => ioctl_download,
+    ioctl_wr       => ioctl_wr,
+    ioctl_addr     => ioctl_addr,
+    ioctl_data     => ioctl_data,
+    ioctl_index    => ioctl_index,
+    joy_key_press  => joy_key_press,
+    joy_key_code   => joy_key_code
+  );
+
+  kbd : keyboard port map (
     PS2_Key  => PS2_Key,
     virtual_active => virtual_keyboard_active,
     virtual_event => virtual_keyboard_event,
@@ -472,7 +624,9 @@ begin
     closed_apple => closed_apple,
     soft_reset => soft_reset,
     video_toggle => video_switch,
-	palette_toggle => palette_switch
+	palette_toggle => palette_switch,
+    joy_key_code  => joy_key_code,
+    joy_key_press => joy_key_press
     );
 
 	 
@@ -538,7 +692,7 @@ begin
     ram_we         => HDD_RAM_WE
     );
 
-  mb_4 : work.mockingboard
+  mb_4 : component mockingboard
     port map (
       CLK_14M    => CLK_14M,
       PHASE_ZERO => PHASE_ZERO,
@@ -559,7 +713,7 @@ begin
       unsigned(O_AUDIO_L) => psg_4_audio_l,
       unsigned(O_AUDIO_R) => psg_4_audio_r
       );
-  mb_5 : work.mockingboard
+  mb_5 : component mockingboard
     port map (
       CLK_14M    => CLK_14M,
       PHASE_ZERO => PHASE_ZERO,
@@ -652,28 +806,71 @@ begin
   );
 	
 	
-	clock : component clock_card
-  port map (
-	  CLK_14M         => CLK_14M,
-	  CLK_2M          => CLK_2M,
-	  PH_2            => PHASE_ZERO,
-	  IO_SELECT_N     => not IO_SELECT(1),
-	  DEVICE_SELECT_N => not DEVICE_SELECT(1),
-	  IO_STROBE_N     => NOT IO_STROBE,
-	  ADDRESS         => std_logic_vector(ADDR),
-	  RW_N            => not cpu_we,
-	  RESET           => reset,
-	  DATA_IN         => std_logic_vector(D),
-	  unsigned(DATA_OUT) => CLOCK_DO,
-	  OE              => CLOCK_OE,
-	  RTC             => RTC
+	-- No Slot Clock (NSC): DS1216E-style software time interface hiding under
+	-- each slot's ROM page at offsets $00-$07 (replaces the old clock_card;
+	-- see NSC_PORT_NOTES.md in Apple-II-Verilog_MiSTer). nsc_ticker supplies
+	-- BCD time/date (HPS RTC reload + free-running calendar); no_slot_clock
+	-- (BSD port of jtflanagan/AppleTini's module) implements the 64-write
+	-- unlock / 64-bit readout protocol on the bus.
+	nsc_tkr : component nsc_ticker
+	port map (
+	  clk      => CLK_14M,
+	  rst      => reset,
+	  rtc      => RTC,
+	  time_bcd => nsc_time_bcd,
+	  time_en  => nsc_time_en
+	  );
+
+	-- Reachable from any slot 1-6 wide window ($C1xx-$C7xx; $C3xx only when
+	-- C3ROM is set) or the $C8xx-$CFFF slot-ROM window (IO_STROBE decode).
+	-- The stock driver probes slots 3,1,2,4-7 then internal, so with the
+	-- default C3ROM=0 it finds the NSC at $C1xx. The module itself restricts
+	-- to offsets $00-$07.
+	nsc : component no_slot_clock
+	port map (
+	  clk           => CLK_14M,
+	  rst           => reset,
+	  strobe        => PHASE_ZERO_R,
+	  addr          => std_logic_vector(ADDR),
+	  rw            => not cpu_we,
+	  slot_sel      => IO_SELECT(6) or IO_SELECT(5) or IO_SELECT(4) or
+	                   IO_SELECT(3) or IO_SELECT(2) or IO_SELECT(1) or
+	                   IO_STROBE,
+	  input_time    => "00000000000000000000" & nsc_time_bcd,
+	  input_time_en => nsc_time_en,
+	  wr_data       => CLOCK_DO,
+	  wr_data_en    => CLOCK_OE
 	  );
 
 
 
-  audio(6 downto 0) <= (others => '0');
-  audio(9 downto 8) <= (others => '0');
-  AUDIO_R <= std_logic_vector(psg_4_audio_r + psg_5_audio_r + audio);
-  AUDIO_L <= std_logic_vector(psg_4_audio_l + psg_5_audio_l + audio);
+  speaker_average: process (CLK_14M) is
+    variable v_sum  : unsigned(8 downto 0);
+    variable v_prod : unsigned(17 downto 0);
+    variable v_avg  : unsigned(17 downto 0);
+  begin
+    if rising_edge(CLK_14M) then
+      v_sum := spk_sum;
+      if spk_bit = '1' then
+        v_sum := v_sum + 1;
+      end if;
+      if spk_cnt = 297 then
+        v_prod := v_sum & "000000000";   -- *512, max 298*512=152576 < 2^18
+        v_avg  := v_prod / 298;          -- max 512
+        spk_avg <= std_logic_vector(v_avg(9 downto 0));
+        spk_sum <= (others => '0');
+        spk_cnt <= (others => '0');
+      else
+        spk_sum <= v_sum;
+        spk_cnt <= spk_cnt + 1;
+      end if;
+    end if;
+  end process speaker_average;
+
+  audio <= unsigned(spk_avg);
+  audio_sum_l <= ("0" & psg_4_audio_l) + ("0" & psg_5_audio_l) + ("0" & audio);
+  audio_sum_r <= ("0" & psg_4_audio_r) + ("0" & psg_5_audio_r) + ("0" & audio);
+  AUDIO_L <= (others => '1') when audio_sum_l(10) = '1' else std_logic_vector(audio_sum_l(9 downto 0));
+  AUDIO_R <= (others => '1') when audio_sum_r(10) = '1' else std_logic_vector(audio_sum_r(9 downto 0));
 
 end arch;

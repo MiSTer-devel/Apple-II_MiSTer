@@ -25,6 +25,7 @@ entity apple2 is
     FLASH_CLK      : in  std_logic;        -- approx. 2 Hz flashing char clock
     reset          : in  std_logic;
     cpu            : in  std_logic;              -- 0 - 6502, 1 - 65C02
+    STALL          : in  std_logic;              -- 1: hold the CPU in place (OSD pause)
     ADDR           : out unsigned(15 downto 0);  -- CPU address
     ram_addr       : out unsigned(17 downto 0);  -- RAM address
     D              : out unsigned(7 downto 0);   -- Data to RAM
@@ -37,6 +38,7 @@ entity apple2 is
     ram_we         : out std_logic;              -- RAM write enable
     VIDEO          : out std_logic;
     COLOR_LINE     : out std_logic;
+    RUN_FILL_OK    : out std_logic;              -- 1 in GR/DHGR, 0 in HGR/text
     TEXT_MODE      : buffer std_logic;
     HBL            : out std_logic;
     VBL            : buffer std_logic;
@@ -79,6 +81,61 @@ architecture rtl of apple2 is
     );
   end component;
 
+  component timing_generator is
+    port (
+      CLK_14M       : in  std_logic;
+      PALMODE       : in  std_logic;
+      VID7M         : out std_logic;
+      Q3            : out std_logic;
+      RAS_N         : out std_logic;
+      CAS_N         : out std_logic;
+      AX            : out std_logic;
+      PHI0          : out std_logic;
+      COLOR_REF     : out std_logic;
+      PHI0_EN_R     : out std_logic;
+      PHI0_EN_F     : out std_logic;
+      TEXT_MODE     : in  std_logic;
+      PAGE2         : in  std_logic;
+      HIRES_MODE    : in  std_logic;
+      MIXED_MODE    : in  std_logic;
+      COL80         : in  std_logic;
+      STORE80       : in  std_logic;
+      DHIRES_MODE   : in  std_logic;
+      VID7          : in  std_logic;
+      VIDEO_ADDRESS : out unsigned(15 downto 0);
+      SEGA          : out std_logic;
+      SEGB          : out std_logic;
+      SEGC          : out std_logic;
+      GR1           : out std_logic;
+      GR2           : out std_logic;
+      HBLANK        : out std_logic;
+      VBLANK        : out std_logic;
+      WNDW_N        : out std_logic;
+      LDPS_N        : out std_logic
+    );
+  end component;
+
+  component video_generator is
+    port (
+      CLK_14M    : in  std_logic;
+      CLK_7M     : in  std_logic;
+      ALTCHAR    : in  std_logic;
+      ROMSWITCH  : in  std_logic;
+      GR2        : in  std_logic;
+      SEGA       : in  std_logic;
+      SEGB       : in  std_logic;
+      SEGC       : in  std_logic;
+      WNDW_N     : in  std_logic;
+      DL         : in  unsigned(7 downto 0);
+      LDPS_N     : in  std_logic;
+      ioctl_addr : in  std_logic_vector(24 downto 0);
+      ioctl_data : in  std_logic_vector(7 downto 0);
+      ioctl_wr   : in  std_logic;
+      FLASH_CLK  : in  std_logic;
+      VIDEO      : out std_logic
+    );
+  end component;
+
   -- Clocks
   signal CLK_7M : std_logic;
   signal Q3, RAS_N, CAS_N, AX : std_logic;
@@ -115,13 +172,39 @@ architecture rtl of apple2 is
   signal D_IN : unsigned(7 downto 0);
   signal D_OUT: unsigned(7 downto 0);
   signal A : unsigned(15 downto 0);
-  signal T65_A : std_logic_vector(23 downto 0);
-  signal T65_DI : std_logic_vector(7 downto 0);
-  signal T65_DO : std_logic_vector(7 downto 0);
-  signal T65_WE_N : std_logic;
-  signal R65C02_A : unsigned(15 downto 0);
-  signal R65C02_DO : unsigned(7 downto 0);
-  signal R65C02_WE_N : std_logic;
+  -- nmos6502 (NMOS 6502 core, rtl/cpu/nmos6502, WDC_MODE=0; replaced T65)
+  signal N6502_A : std_logic_vector(15 downto 0);
+  signal N6502_DO : std_logic_vector(7 downto 0);
+  signal N6502_WE : std_logic;              -- active-high write cycle
+  -- NMOS/SoC-specific outputs, unused on the Apple II
+  signal N6502_SYNC : std_logic;
+  signal N6502_VECTOR_PULL : std_logic;
+  signal N6502_ML_N : std_logic;
+  signal N6502_PHI1O : std_logic;
+  signal N6502_PHI2O : std_logic;
+  signal N6502_BUS_OE : std_logic;
+  signal N6502_DOUT_OE : std_logic;
+  signal N6502_INT_SEQ : std_logic;
+  signal N6502_RTI_DONE : std_logic;
+  signal N6502_IN_WAI : std_logic;
+  signal N6502_IN_STP : std_logic;
+  signal N6502_SS_RDATA : std_logic_vector(63 downto 0);
+  -- wdc65c02 (W65C02S-style 65C02 core, rtl/cpu/wdc65c02, WDC_MODE=1;
+  -- replaced R65C02)
+  signal N65C02_A : std_logic_vector(15 downto 0);
+  signal N65C02_DO : std_logic_vector(7 downto 0);
+  signal N65C02_WE : std_logic;             -- active-high write cycle
+  -- SoC-specific outputs, unused on the Apple II
+  signal N65C02_SYNC : std_logic;
+  signal N65C02_VECTOR_PULL : std_logic;
+  signal N65C02_INT_SEQ : std_logic;
+  signal N65C02_RTI_DONE : std_logic;
+  signal N65C02_IN_WAI : std_logic;
+  signal N65C02_IN_STP : std_logic;
+  signal N65C02_SS_RDATA : std_logic_vector(63 downto 0);
+  -- SoC-specific output collectors (see unused_ok assignments below)
+  signal nmos6502_unused_ok : std_logic;
+  signal wdc65c02_unused_ok : std_logic;
   signal we : std_logic;
 
   -- Main ROM signals
@@ -172,6 +255,80 @@ architecture rtl of apple2 is
 
   
   signal video_rom_select : std_logic;
+
+  -- nmos6502: NMOS 6502 / W65C02S core (rtl/cpu/nmos6502/cpu_65c02.sv).
+  -- WDC_MODE=0 selects NMOS 6502 bus/flag behavior.
+  component nmos6502 is
+    generic (
+      SS_BASE  : std_logic_vector(9 downto 0) := (others => '0');
+      WDC_MODE : std_logic_vector(0 downto 0) := "1"
+    );
+    port (
+      clk         : in  std_logic;
+      ce          : in  std_logic;
+      ce_n        : in  std_logic;
+      reset       : in  std_logic;
+      stall       : in  std_logic;
+      irq_n       : in  std_logic;
+      nmi_n       : in  std_logic;
+      rdy         : in  std_logic;
+      so_n        : in  std_logic;
+      be          : in  std_logic;
+      stp_nop     : in  std_logic;
+      addr        : out std_logic_vector(15 downto 0);
+      dout        : out std_logic_vector(7 downto 0);
+      din         : in  std_logic_vector(7 downto 0);
+      we          : out std_logic;
+      sync        : out std_logic;
+      vector_pull : out std_logic;
+      ml_n        : out std_logic;
+      phi1o       : out std_logic;
+      phi2o       : out std_logic;
+      bus_oe      : out std_logic;
+      dout_oe     : out std_logic;
+      int_seq     : out std_logic;
+      rti_done    : out std_logic;
+      in_wai      : out std_logic;
+      in_stp      : out std_logic;
+      ss_addr     : in  std_logic_vector(9 downto 0);
+      ss_wdata    : in  std_logic_vector(63 downto 0);
+      ss_wren     : in  std_logic;
+      ss_rdata    : out std_logic_vector(63 downto 0)
+    );
+  end component;
+
+  -- wdc65c02: W65C02S-style 65C02 core (rtl/cpu/wdc65c02/cpu_65c02.sv).
+  component wdc65c02 is
+    generic (
+      SS_BASE  : std_logic_vector(9 downto 0) := (others => '0');
+      WDC_MODE : std_logic_vector(0 downto 0) := "1"
+    );
+    port (
+      clk         : in  std_logic;
+      ce          : in  std_logic;
+      ce_n        : in  std_logic;
+      reset       : in  std_logic;
+      stall       : in  std_logic;
+      irq_n       : in  std_logic;
+      nmi_n       : in  std_logic;
+      rdy         : in  std_logic;
+      stp_nop     : in  std_logic;
+      addr        : out std_logic_vector(15 downto 0);
+      dout        : out std_logic_vector(7 downto 0);
+      din         : in  std_logic_vector(7 downto 0);
+      we          : out std_logic;
+      sync        : out std_logic;
+      vector_pull : out std_logic;
+      int_seq     : out std_logic;
+      rti_done    : out std_logic;
+      in_wai      : out std_logic;
+      in_stp      : out std_logic;
+      ss_addr     : in  std_logic_vector(9 downto 0);
+      ss_wdata    : in  std_logic_vector(63 downto 0);
+      ss_wren     : in  std_logic;
+      ss_rdata    : out std_logic_vector(63 downto 0)
+    );
+  end component;
 begin
 
   CLK_2M <= Q3;
@@ -343,6 +500,12 @@ begin
   AN <= soft_switches(7 downto 4);
   DHIRES_MODE <= AN(3);
 
+  -- Graphics-mode gate for the vga_controller run fill: the 2-5 px seam run
+  -- fill is only an artifact fix in GR (low-res) and DHGR; in HGR the
+  -- neutral runs are real content, so the fill is disabled there. The DUT
+  -- falls back to the exact run-fill-off path when this is low.
+  RUN_FILL_OK <= not HIRES_MODE or not DHIRES_MODE;
+
   hram_ctrl: process (CLK_14M, reset)
   begin
     if reset = '1' then
@@ -441,7 +604,7 @@ begin
                         HRAM_CONTROL = '1' or A = x"CFFF" else  -- Floating bus
           PD;                           -- Peripherals
 
-  timing : entity work.timing_generator port map (
+  timing : component timing_generator port map (
     CLK_14M        => CLK_14M,
 	 PALMODE        => PALMODE,
     VID7M          => CLK_7M,
@@ -474,7 +637,7 @@ begin
 
   video_rom_select <= '1' when ioctl_download='1' and ioctl_wr = '1' and ioctl_index = "00000001" else '0';
 	 
-  video_display : entity work.video_generator port map (
+  video_display : component video_generator port map (
     CLK_14M    => CLK_14M,
     CLK_7M     => CLK_7M,
     GR2        => GR2,
@@ -494,10 +657,11 @@ begin
 	 
     VIDEO      => VIDEO);
 
-  we <= not T65_WE_N when cpu = '0' else not R65C02_WE_N;
-  A <= unsigned(T65_A(15 downto 0)) when cpu = '0' else R65C02_A;
-  D_OUT <= unsigned(T65_DO) when cpu = '0' else R65C02_DO;
-  T65_DI <= std_logic_vector(D_OUT) when T65_WE_N = '0' else std_logic_vector(D_IN);
+  -- Both cores use active-high write cycles (unlike T65/R65C02, which were
+  -- active-low).
+  we <= N6502_WE when cpu = '0' else N65C02_WE;
+  A <= unsigned(N6502_A) when cpu = '0' else unsigned(N65C02_A);
+  D_OUT <= unsigned(N6502_DO) when cpu = '0' else unsigned(N65C02_DO);
   --CPU_EN <= PHASE_ZERO_F; -- not sure why this isn't working??
   CPU_EN <= '1' when PHASE_ZERO_D = '1' and PHASE_ZERO = '0' else '0';
   cpu_enable: process (CLK_14M)
@@ -510,37 +674,97 @@ begin
 
 
 
-  cpu6502 : entity work.T65
+  -- NMOS 6502: nmos6502 core (WDC_MODE=0, one bus access per cycle).
+  --   ce = CPU_EN, rdy = ~CPU_WAIT - the same edge model as the wdc65c02 core
+  --        below, so machine RAM/ROM timing is unchanged (WAIT now arrives on
+  --        rdy instead of being ANDed into the old T65 enable).
+  --   so_n high (no Set Overflow pin on the Apple II); be=1 (always drive);
+  --   stp_nop=1: no power switch, so STP ($DB) is a NOP.
+  --   ml_n/phi1o/phi2o/bus_oe/dout_oe are NMOS-specific pins unused here; the
+  --   savestate bus is tied off until a machine-wide savestate walker exists.
+  cpu6502 : component nmos6502
+    generic map (
+      WDC_MODE => "0"
+    )
     port map (
-      mode     => "00",
-      clk      => CLK_14M,
-      enable   => CPU_EN and (not CPU_WAIT),
-      res_n    => not reset,
-
-      Rdy      => '1',
-      Abort_n  => '1',
-      SO_n     => '1',
-
-      IRQ_n    => IRQ_N,
-      NMI_n    => NMI_N,
-      R_W_n    => T65_WE_N,
-      A        => T65_A,
-      DI       => T65_DI,
-      DO       => T65_DO
+      clk         => CLK_14M,
+      ce          => CPU_EN,
+      ce_n        => '0',
+      reset       => reset,
+      stall       => STALL,
+      irq_n       => IRQ_N,
+      nmi_n       => NMI_N,
+      rdy         => not CPU_WAIT,
+      so_n        => '1',
+      be          => '1',
+      stp_nop     => '1',
+      addr        => N6502_A,
+      dout        => N6502_DO,
+      din         => std_logic_vector(D_IN),
+      we          => N6502_WE,
+      sync        => N6502_SYNC,
+      vector_pull => N6502_VECTOR_PULL,
+      ml_n        => N6502_ML_N,
+      phi1o       => N6502_PHI1O,
+      phi2o       => N6502_PHI2O,
+      bus_oe      => N6502_BUS_OE,
+      dout_oe     => N6502_DOUT_OE,
+      int_seq     => N6502_INT_SEQ,
+      rti_done    => N6502_RTI_DONE,
+      in_wai      => N6502_IN_WAI,
+      in_stp      => N6502_IN_STP,
+      ss_addr     => (others => '0'),
+      ss_wdata    => (others => '0'),
+      ss_wren     => '0',
+      ss_rdata    => N6502_SS_RDATA
     );
 
-  cpu65c02: entity work.R65C02
+  -- 65C02: wdc65c02 core (W65C02S-style, one bus access per cycle).
+  --   ce = CPU_EN: the PHASE_ZERO falling-edge pulse; on it the core samples
+  --        din and launches the next cycle's address/write - the exact edge
+  --        R65C02's enable used, so machine RAM/ROM timing is unchanged.
+  --   SoC-specific outputs and the savestate bus are tied off.
+  cpu65c02 : component wdc65c02
+    generic map (
+      WDC_MODE => "1"
+    )
     port map (
-        reset => not reset,
-        clk => CLK_14M,
-        enable => CPU_EN and (not CPU_WAIT),
-        nmi_n => NMI_N,
-        irq_n => IRQ_N,
-        di => D_IN,
-        do => R65C02_DO,
-        addr => R65C02_A,
-        nwe => R65C02_WE_N
+      clk         => CLK_14M,
+      ce          => CPU_EN,
+      ce_n        => '0',
+      reset       => reset,
+      stall       => STALL,
+      irq_n       => IRQ_N,
+      nmi_n       => NMI_N,
+      rdy         => not CPU_WAIT,
+      stp_nop     => '1',
+      addr        => N65C02_A,
+      dout        => N65C02_DO,
+      din         => std_logic_vector(D_IN),
+      we          => N65C02_WE,
+      sync        => N65C02_SYNC,
+      vector_pull => N65C02_VECTOR_PULL,
+      int_seq     => N65C02_INT_SEQ,
+      rti_done    => N65C02_RTI_DONE,
+      in_wai      => N65C02_IN_WAI,
+      in_stp      => N65C02_IN_STP,
+      ss_addr     => (others => '0'),
+      ss_wdata    => (others => '0'),
+      ss_wren     => '0',
+      ss_rdata    => N65C02_SS_RDATA
     );
+
+  -- SoC-specific core outputs are unused on the Apple II. Collect them into
+  -- a reduction so synthesis sees them as read (mirrors the &{1'b0,...}
+  -- "unused_ok" idiom in the verilog-repo apple2.v). The two unused_ok
+  -- signals remain as debug probes and are the only intended 10036 warnings.
+  nmos6502_unused_ok <= N6502_SYNC and N6502_VECTOR_PULL and N6502_ML_N and
+                        N6502_PHI1O and N6502_PHI2O and N6502_BUS_OE and
+                        N6502_DOUT_OE and N6502_INT_SEQ and N6502_RTI_DONE and
+                        N6502_IN_WAI and N6502_IN_STP and N6502_SS_RDATA(0);
+  wdc65c02_unused_ok <= N65C02_SYNC and N65C02_VECTOR_PULL and
+                        N65C02_INT_SEQ and N65C02_RTI_DONE and
+                        N65C02_IN_WAI and N65C02_IN_STP and N65C02_SS_RDATA(0);
 
   -- Original Apple had asynchronous ROMs.  We use a synchronous ROM
   -- that needs its address earlier, hence the odd clock.
