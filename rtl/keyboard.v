@@ -266,14 +266,14 @@ module keyboard(
                 begin
                     akd <= 1'b1;
                     key_pressed <= 1'b1;
-                    rep_timer <= 7000000;		// 0.5s
+                    rep_timer <= 23'd7000000;		// 0.5s
                 end
                 if (akd == 1'b1)
                 begin
-                    rep_timer <= rep_timer - 1;
+                    rep_timer <= rep_timer - 23'd1;
                     if (rep_timer == 0)
                     begin
-                        rep_timer <= 933333;		// 1/15s
+                        rep_timer <= 23'd933333;		// 1/15s
                         key_pressed <= 1'b1;
                     end
                 end

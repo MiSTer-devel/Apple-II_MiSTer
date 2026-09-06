@@ -383,6 +383,8 @@ apple2_top apple2_top
 	.TEXT_COLOR( text_color ),
 	.COLOR_PALETTE(status[25:24]),
 	.GRAY_SEAM_FIX(~status[4]),
+	.SEAM_RUN_FILL(1'b1),
+	.SEAM_RUN_WIDE(1'b0),
 	.NTSC_VERTICAL_COMB(~status[32]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),

@@ -64,6 +64,8 @@ port (
 	palette_switch : out std_logic;
 	COLOR_PALETTE  :  in std_logic_vector(1 downto 0); -- 00: Original (//e NTSC), 01: //gs, 02: AppleWin, 03: //c PAL
 	GRAY_SEAM_FIX  : in std_logic;
+	SEAM_RUN_FILL  : in std_logic;
+  SEAM_RUN_WIDE  : in std_logic;
 	NTSC_VERTICAL_COMB : in std_logic;
 	
     PALMODE        : in  std_logic := '0';       -- PAL/NTSC selection
@@ -279,6 +281,9 @@ end component;
       SCREEN_MODE        : in  std_logic_vector(1 downto 0);
       COLOR_PALETTE      : in  std_logic_vector(1 downto 0);
       GRAY_SEAM_FIX      : in  std_logic;
+      SEAM_RUN_FILL      : in  std_logic;
+      SEAM_RUN_WIDE      : in  std_logic;
+      RUN_FILL_OK        : in  std_logic;
       NTSC_VERTICAL_COMB : in  std_logic;
       HBL                : in  std_logic;
       VBL                : in  std_logic;
@@ -351,6 +356,7 @@ end component;
   signal we_ram : std_logic;
   signal VIDEO, HBL, VBL : std_logic;
   signal COLOR_LINE : std_logic;
+  signal RUN_FILL_OK : std_logic;
   signal COLOR_LINE_CONTROL : std_logic;
   signal TEXT_MODE : std_logic;
   signal GAMEPORT : std_logic_vector(7 downto 0);
@@ -497,6 +503,7 @@ begin
     PALMODE        => PALMODE,
     ROMSWITCH      => ROMSWITCH,
     COLOR_LINE     => COLOR_LINE,
+    RUN_FILL_OK    => RUN_FILL_OK,
     TEXT_MODE      => TEXT_MODE,
     HBL            => HBL,
     VBL            => VBL,
@@ -528,6 +535,9 @@ begin
     SCREEN_MODE => SCREEN_MODE,
     COLOR_PALETTE => COLOR_PALETTE,
     GRAY_SEAM_FIX => GRAY_SEAM_FIX,
+    SEAM_RUN_FILL => SEAM_RUN_FILL,
+    SEAM_RUN_WIDE => SEAM_RUN_WIDE,
+    RUN_FILL_OK   => RUN_FILL_OK,
     NTSC_VERTICAL_COMB => NTSC_VERTICAL_COMB,
     HBL        => HBL,
     VBL        => VBL,

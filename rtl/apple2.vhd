@@ -37,6 +37,7 @@ entity apple2 is
     ram_we         : out std_logic;              -- RAM write enable
     VIDEO          : out std_logic;
     COLOR_LINE     : out std_logic;
+    RUN_FILL_OK    : out std_logic;              -- 1 in GR/DHGR, 0 in HGR/text
     TEXT_MODE      : buffer std_logic;
     HBL            : out std_logic;
     VBL            : buffer std_logic;
@@ -397,6 +398,12 @@ begin
   HIRES_MODE <= soft_switches(3);
   AN <= soft_switches(7 downto 4);
   DHIRES_MODE <= AN(3);
+
+  -- Graphics-mode gate for the vga_controller run fill: the 2-5 px seam run
+  -- fill is only an artifact fix in GR (low-res) and DHGR; in HGR the
+  -- neutral runs are real content, so the fill is disabled there. The DUT
+  -- falls back to the exact run-fill-off path when this is low.
+  RUN_FILL_OK <= not HIRES_MODE or DHIRES_MODE;
 
   hram_ctrl: process (CLK_14M, reset)
   begin
