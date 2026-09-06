@@ -48,6 +48,8 @@ module drive_status_overlay #(
 );
 
 localparam integer ACTIVITY_HOLD_BITS = $clog2(ACTIVITY_HOLD_CYCLES + 1);
+localparam [ACTIVITY_HOLD_BITS-1:0] ACTIVITY_HOLD_VALUE =
+	ACTIVITY_HOLD_CYCLES[ACTIVITY_HOLD_BITS-1:0];
 localparam integer DRIVE2_LED_X = LED_X + LED_WIDTH + LED_SPACING;
 localparam integer HDD_LED_X = DRIVE2_LED_X + LED_WIDTH + LED_SPACING;
 
@@ -86,13 +88,13 @@ always @(posedge clk) begin
 		drive2_activity_hold <= 0;
 		hdd_activity_hold <= 0;
 	end else begin
-		if(drive1_activity) drive1_activity_hold <= ACTIVITY_HOLD_CYCLES;
+		if(drive1_activity) drive1_activity_hold <= ACTIVITY_HOLD_VALUE;
 		else if(drive1_activity_hold) drive1_activity_hold <= drive1_activity_hold - 1'd1;
 
-		if(drive2_activity) drive2_activity_hold <= ACTIVITY_HOLD_CYCLES;
+		if(drive2_activity) drive2_activity_hold <= ACTIVITY_HOLD_VALUE;
 		else if(drive2_activity_hold) drive2_activity_hold <= drive2_activity_hold - 1'd1;
 
-		if(hdd_activity) hdd_activity_hold <= ACTIVITY_HOLD_CYCLES;
+		if(hdd_activity) hdd_activity_hold <= ACTIVITY_HOLD_VALUE;
 		else if(hdd_activity_hold) hdd_activity_hold <= hdd_activity_hold - 1'd1;
 	end
 end

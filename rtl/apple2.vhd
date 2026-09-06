@@ -79,6 +79,61 @@ architecture rtl of apple2 is
     );
   end component;
 
+  component timing_generator is
+    port (
+      CLK_14M       : in  std_logic;
+      PALMODE       : in  std_logic;
+      VID7M         : out std_logic;
+      Q3            : out std_logic;
+      RAS_N         : out std_logic;
+      CAS_N         : out std_logic;
+      AX            : out std_logic;
+      PHI0          : out std_logic;
+      COLOR_REF     : out std_logic;
+      PHI0_EN_R     : out std_logic;
+      PHI0_EN_F     : out std_logic;
+      TEXT_MODE     : in  std_logic;
+      PAGE2         : in  std_logic;
+      HIRES_MODE    : in  std_logic;
+      MIXED_MODE    : in  std_logic;
+      COL80         : in  std_logic;
+      STORE80       : in  std_logic;
+      DHIRES_MODE   : in  std_logic;
+      VID7          : in  std_logic;
+      VIDEO_ADDRESS : out unsigned(15 downto 0);
+      SEGA          : out std_logic;
+      SEGB          : out std_logic;
+      SEGC          : out std_logic;
+      GR1           : out std_logic;
+      GR2           : out std_logic;
+      HBLANK        : out std_logic;
+      VBLANK        : out std_logic;
+      WNDW_N        : out std_logic;
+      LDPS_N        : out std_logic
+    );
+  end component;
+
+  component video_generator is
+    port (
+      CLK_14M    : in  std_logic;
+      CLK_7M     : in  std_logic;
+      ALTCHAR    : in  std_logic;
+      ROMSWITCH  : in  std_logic;
+      GR2        : in  std_logic;
+      SEGA       : in  std_logic;
+      SEGB       : in  std_logic;
+      SEGC       : in  std_logic;
+      WNDW_N     : in  std_logic;
+      DL         : in  unsigned(7 downto 0);
+      LDPS_N     : in  std_logic;
+      ioctl_addr : in  std_logic_vector(24 downto 0);
+      ioctl_data : in  std_logic_vector(7 downto 0);
+      ioctl_wr   : in  std_logic;
+      FLASH_CLK  : in  std_logic;
+      VIDEO      : out std_logic
+    );
+  end component;
+
   -- Clocks
   signal CLK_7M : std_logic;
   signal Q3, RAS_N, CAS_N, AX : std_logic;
@@ -441,7 +496,7 @@ begin
                         HRAM_CONTROL = '1' or A = x"CFFF" else  -- Floating bus
           PD;                           -- Peripherals
 
-  timing : entity work.timing_generator port map (
+  timing : component timing_generator port map (
     CLK_14M        => CLK_14M,
 	 PALMODE        => PALMODE,
     VID7M          => CLK_7M,
@@ -474,7 +529,7 @@ begin
 
   video_rom_select <= '1' when ioctl_download='1' and ioctl_wr = '1' and ioctl_index = "00000001" else '0';
 	 
-  video_display : entity work.video_generator port map (
+  video_display : component video_generator port map (
     CLK_14M    => CLK_14M,
     CLK_7M     => CLK_7M,
     GR2        => GR2,

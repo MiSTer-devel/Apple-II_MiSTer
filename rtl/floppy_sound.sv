@@ -94,11 +94,11 @@ wire motor_running = drive1_motor | drive2_motor;
 wire motor_audible = motor_running | (motor_envelope != 0);
 wire drive1_io_event = drive1_io && !drive1_io_d;
 wire drive2_io_event = drive2_io && !drive2_io_d;
-wire [8:0] motor_level_product = (motor_envelope * MOTOR_LEVEL) +
+wire [8:0] motor_level_product = ({5'd0, motor_envelope} * MOTOR_LEVEL[8:0]) +
 	(spindle_phase ? motor_envelope : 4'd0);
 wire [9:0] motor_sample = motor_audible && noise_lfsr[0] ?
 	((motor_level_product + 9'd15) >> 4) : 10'd0;
-wire [7:0] motor_tone_product = motor_envelope * MOTOR_TONE_LEVEL;
+wire [7:0] motor_tone_product = {4'd0, motor_envelope} * MOTOR_TONE_LEVEL[7:0];
 wire [9:0] motor_tone_sample = motor_audible && motor_tone_phase ?
 	((motor_tone_product + 8'd15) >> 4) : 10'd0;
 wire drive1_track_zero_active = drive1_stop_envelope != 0;
@@ -253,11 +253,11 @@ always @(posedge clk) begin
 
 		if(drive1_io_event && !drive1_io_cooldown) begin
 			drive1_io_envelope <= 3'h7;
-			drive1_io_cooldown <= IO_RETRIGGER_CYCLES;
+			drive1_io_cooldown <= IO_RETRIGGER_CYCLES[IO_RETRIGGER_BITS-1:0];
 		end
 		if(drive2_io_event && !drive2_io_cooldown) begin
 			drive2_io_envelope <= 3'h7;
-			drive2_io_cooldown <= IO_RETRIGGER_CYCLES;
+			drive2_io_cooldown <= IO_RETRIGGER_CYCLES[IO_RETRIGGER_BITS-1:0];
 		end
 
 		if(io_divider == IO_DECAY_DIVIDER - 1) begin

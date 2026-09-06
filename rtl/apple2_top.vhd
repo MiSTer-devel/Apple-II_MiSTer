@@ -238,6 +238,54 @@ architecture arch of apple2_top is
     );
   end component;
 
+  component vga_controller is
+    port (
+      CLK_14M            : in  std_logic;
+      VIDEO              : in  std_logic;
+      COLOR_LINE         : in  std_logic;
+      SCREEN_MODE        : in  std_logic_vector(1 downto 0);
+      COLOR_PALETTE      : in  std_logic_vector(1 downto 0);
+      GRAY_SEAM_FIX      : in  std_logic;
+      NTSC_VERTICAL_COMB : in  std_logic;
+      HBL                : in  std_logic;
+      VBL                : in  std_logic;
+      VGA_HS             : out std_logic;
+      VGA_VS             : out std_logic;
+      VGA_HBL            : out std_logic;
+      VGA_VBL            : out std_logic;
+      VGA_R              : out unsigned(7 downto 0);
+      VGA_G              : out unsigned(7 downto 0);
+      VGA_B              : out unsigned(7 downto 0);
+      ioctl_addr         : in  std_logic_vector(24 downto 0);
+      ioctl_data         : in  std_logic_vector(7 downto 0);
+      ioctl_index        : in  std_logic_vector(7 downto 0);
+      ioctl_download     : in  std_logic;
+      ioctl_wr           : in  std_logic;
+      ioctl_wait         : out std_logic
+    );
+  end component;
+
+  component mockingboard is
+    port (
+      CLK_14M      : in  std_logic;
+      PHASE_ZERO   : in  std_logic;
+      PHASE_ZERO_R : in  std_logic;
+      PHASE_ZERO_F : in  std_logic;
+      I_ADDR       : in  std_logic_vector(7 downto 0);
+      I_DATA       : in  std_logic_vector(7 downto 0);
+      O_DATA       : out std_logic_vector(7 downto 0);
+      OE           : out std_logic;
+      I_RW_L       : in  std_logic;
+      O_IRQ_L      : out std_logic;
+      O_NMI_L      : out std_logic;
+      I_IOSEL_L    : in  std_logic;
+      I_RESET_L    : in  std_logic;
+      I_ENA_H      : in  std_logic;
+      O_AUDIO_L    : out std_logic_vector(9 downto 0);
+      O_AUDIO_R    : out std_logic_vector(9 downto 0)
+    );
+  end component;
+
 
   signal CLK_2M, CLK_2M_D, PHASE_ZERO, PHASE_ZERO_R, PHASE_ZERO_F : std_logic;
   signal IO_SELECT, DEVICE_SELECT : std_logic_vector(7 downto 0);
@@ -426,7 +474,7 @@ begin
     speaker        => audio(7)
     );
 
-  tv : entity work.vga_controller port map (
+  tv : component vga_controller port map (
     CLK_14M    => CLK_14M,
     VIDEO      => VIDEO,
     COLOR_LINE => COLOR_LINE_CONTROL,
@@ -538,7 +586,7 @@ begin
     ram_we         => HDD_RAM_WE
     );
 
-  mb_4 : work.mockingboard
+  mb_4 : component mockingboard
     port map (
       CLK_14M    => CLK_14M,
       PHASE_ZERO => PHASE_ZERO,
@@ -559,7 +607,7 @@ begin
       unsigned(O_AUDIO_L) => psg_4_audio_l,
       unsigned(O_AUDIO_R) => psg_4_audio_r
       );
-  mb_5 : work.mockingboard
+  mb_5 : component mockingboard
     port map (
       CLK_14M    => CLK_14M,
       PHASE_ZERO => PHASE_ZERO,
