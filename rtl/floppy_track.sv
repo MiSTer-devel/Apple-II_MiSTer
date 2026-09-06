@@ -50,6 +50,11 @@ module floppy_track
 
 assign sd_lba = lba;
 
+// A Disk II image holds 35 tracks (0..34); the head cannot move past 34.
+// Clamp so stepping beyond it keeps addressing track 34 instead of LBA
+// past the end of the image (reads) or writing there (dirty save).
+wire [5:0] trk = (track > 6'd34) ? 6'd34 : track;
+
 reg  [31:0] lba;
 reg   [3:0] rel_lba;
 
@@ -96,11 +101,11 @@ always @(posedge clk) begin
 					else sd_rd <= 1;
 			end
 			else
-			if(saving && (cur_track != track)) begin
+			if(saving && (cur_track != trk)) begin
 				saving <= 0;
-				cur_track <= track;
+				cur_track <= trk;
 				rel_lba <= 0;
-                lba <= track * 8'd13; //track size = 1a00h = 13*512
+                lba <= trk * 8'd13; //track size = 1a00h = 13*512
 				sd_rd <= 1;
 			end
 			else
@@ -111,7 +116,7 @@ always @(posedge clk) begin
 		end
 	end
 	else
-	if(ready && ((cur_track != track) || (old_change && ~change) || (dirty && ~active)))
+	if(ready && ((cur_track != trk) || (old_change && ~change) || (dirty && ~active)))
 		if (dirty && cur_track != 'b111111) begin
 			saving <= 1;
 			lba <= cur_track * 8'd13;
@@ -122,9 +127,9 @@ always @(posedge clk) begin
 		else
 		begin
 			saving <= 0;
-			cur_track <= track;
+			cur_track <= trk;
 			rel_lba <= 0;
-			lba <= track * 8'd13; //track size = 1a00h
+			lba <= trk * 8'd13; //track size = 1a00h
 			sd_rd <= 1;
 			busy <= 1;
 			dirty <= 0;
