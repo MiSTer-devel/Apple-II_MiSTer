@@ -142,7 +142,7 @@ begin
 		end
 		7'b0100000:
 		begin
-			BIT <= BIT + 1;
+			BIT <= BIT + 3'd1;
 			if((TX_WORD == 2'b00) && (BIT != 3'b111))
 			begin
 				STATE <= 7'b0010001;
@@ -208,7 +208,7 @@ begin
 				STATE <= 7'b0000000;
 			end
 		end
-		default: STATE <= STATE + 1;
+		default: STATE <= STATE + 7'd1;
 		endcase
 	end
 end

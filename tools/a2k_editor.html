@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apple II Joy-Map (.a2k) Editor</title>
+<style>
+  :root {
+    --bg:#0b0b0d; --panel:#161619; --panel2:#1e1e23; --line:#2a2a31;
+    --fg:#e8e8ea; --dim:#9a9aa2; --accent:#37c26a; --accent2:#2a9d54;
+    --sel:#f5c518; --key:#232329; --keyh:#2e2e36;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:15px/1.45 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+  .wrap { max-width:1160px; margin:0 auto; padding:24px 20px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; letter-spacing:.3px; }
+  .sub { color:var(--dim); margin:0 0 22px; font-size:14px; }
+  .grid { display:grid; grid-template-columns:1.08fr 1fr; gap:20px; }
+  @media (max-width:900px){ .grid{ grid-template-columns:1fr; } }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
+  .card h2 { font-size:14px; text-transform:uppercase; letter-spacing:1px;
+             color:var(--dim); margin:0 0 14px; }
+  /* gamepad */
+  .pad { display:flex; gap:24px; align-items:center; justify-content:center; flex-wrap:wrap; }
+  .dpad { display:grid; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(3,52px); gap:6px; }
+  .dpad .up{grid-column:2;grid-row:1;} .dpad .left{grid-column:1;grid-row:2;}
+  .dpad .mid{grid-column:2;grid-row:2;} .dpad .right{grid-column:3;grid-row:2;}
+  .dpad .down{grid-column:2;grid-row:3;}
+  .keys { display:grid; grid-template-columns:repeat(2,70px); gap:10px; }
+  .ctl { width:52px; height:52px; border-radius:10px; background:var(--key);
+         border:2px solid var(--line); color:var(--fg); cursor:pointer;
+         font-size:20px; font-weight:700; display:flex; align-items:center;
+         justify-content:center; flex-direction:column; position:relative;
+         transition:border-color .12s, transform .05s; user-select:none; }
+  .ctl .glyph { line-height:1; }
+  .ctl small { position:absolute; bottom:3px; left:0; right:0; font-size:8px;
+               font-weight:600; color:var(--dim); letter-spacing:.3px; }
+  .ctl:hover { background:var(--keyh); }
+  .ctl.sel { border-color:var(--sel); box-shadow:0 0 0 2px rgba(245,197,24,.25); }
+  .ctl.none .glyph { color:var(--dim); }
+  .mid { background:transparent; border:none; cursor:default; }
+  .mid::after { content:""; width:16px; height:16px; border-radius:50%; background:var(--line); }
+  /* key buttons (A/B/L/R/X/Y) with a small +Shift box in the bottom-right */
+  .ctl.keybtn { width:70px; height:60px; }
+  .ctl.keybtn.none { border-style:dashed; }
+  .ctl.keybtn .glyph { position:absolute; top:8px; left:0; right:0; text-align:center; font-size:22px; }
+  .ctl.keybtn small { left:6px; right:auto; width:auto; bottom:5px; }
+  .shiftbox { position:absolute; bottom:3px; right:3px; width:20px; height:20px;
+              border-radius:5px; background:var(--panel2); border:1px solid var(--line);
+              cursor:pointer; display:flex; align-items:center; justify-content:center;
+              font-size:11px; font-weight:700; line-height:1; }
+  .shiftbox:hover { border-color:var(--accent); background:var(--keyh); }
+  .shiftbox.sel { border-color:var(--sel); box-shadow:0 0 0 2px rgba(245,197,24,.30); }
+  .shiftbox.none { color:var(--dim); }
+  /* keyboard */
+  .kb { display:flex; flex-direction:column; gap:6px; }
+  .krow { display:flex; gap:6px; }
+  .key { flex:1; min-width:0; height:40px; border-radius:7px; background:var(--key);
+         border:1px solid var(--line); color:var(--fg); cursor:pointer;
+         font-size:14px; font-weight:600; display:flex; align-items:center;
+         justify-content:center; padding:0 4px; transition:background .1s;
+         user-select:none; white-space:nowrap; overflow:hidden; }
+  .key:hover { background:var(--keyh); border-color:var(--accent); }
+  .key.wide { flex:3; } .key.space { flex:7; }
+  .key.none { color:var(--dim); border-style:dashed; }
+  .hint { color:var(--dim); font-size:13px; margin:12px 0 0; }
+  .hint b { color:var(--fg); }
+  /* actions */
+  .fname-row { display:flex; margin-top:14px; margin-bottom:10px; }
+  .actions { display:flex; gap:10px; flex-wrap:wrap; }
+  #reset { margin-left:auto; }
+  button.act { border:none; border-radius:8px; padding:10px 16px; font-size:14px;
+               font-weight:700; cursor:pointer; }
+  button.save { background:var(--accent); color:#04120a; }
+  button.save:hover { background:var(--accent2); }
+  button.ghost { background:var(--panel2); color:var(--fg); border:1px solid var(--line); }
+  button.ghost:hover { background:var(--keyh); }
+  #fname { flex:1; min-width:120px; border-radius:8px; padding:10px 12px; font-size:14px;
+           background:var(--panel2); color:var(--fg); border:1px solid var(--line);
+           font-family:ui-monospace,Consolas,monospace; }
+  .hex { margin-top:14px; background:#0e0e11; border:1px solid var(--line);
+         border-radius:8px; padding:10px 12px; font:12px/1.7 ui-monospace,Consolas,monospace;
+         color:var(--fg); word-break:break-all; }
+  .hex b { color:var(--accent); font-weight:700; }
+  .hex .dim { color:var(--dim); }
+  .status { min-height:18px; margin-top:10px; font-size:13px; color:var(--accent); }
+  .badge { display:inline-block; background:var(--panel2); border:1px solid var(--line);
+           border-radius:6px; padding:2px 8px; font-size:12px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Apple II &mdash; Joy-Map <span class="badge">.a2k</span> Editor</span></h1>
+  <p class="sub">Assign Apple&nbsp;II keys to gamepad buttons for the MiSTer core.
+     Pick a button (or its small <b>+Shift</b> box), then click a key. Save a <b>16-byte</b>
+     <code>.a2k</code> and load it on the core via <b>OSD &rarr; System &amp; BIOS &rarr; "Load Joy Map"</b>.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Joystick</h2>
+      <div class="pad">
+        <div class="dpad">
+          <div class="ctl up"    data-i="3"><span class="glyph">I</span><small>UP</small></div>
+          <div class="ctl left"  data-i="1"><span class="glyph">J</span><small>LEFT</small></div>
+          <div class="mid"></div>
+          <div class="ctl right" data-i="0"><span class="glyph">K</span><small>RIGHT</small></div>
+          <div class="ctl down"  data-i="2"><span class="glyph">M</span><small>DOWN</small></div>
+        </div>
+        <div class="keys">
+          <div class="ctl keybtn" data-i="4"><span class="glyph">U</span><small>A</small><span class="shiftbox" data-i="10" title="A + Shift (hold Select)"><span class="sglyph"></span></span></div>
+          <div class="ctl keybtn" data-i="5"><span class="glyph">O</span><small>B</small><span class="shiftbox" data-i="11" title="B + Shift (hold Select)"><span class="sglyph"></span></span></div>
+          <div class="ctl keybtn" data-i="6"><span class="glyph"></span><small>L</small><span class="shiftbox" data-i="12" title="L + Shift (hold Select)"><span class="sglyph"></span></span></div>
+          <div class="ctl keybtn" data-i="7"><span class="glyph"></span><small>R</small><span class="shiftbox" data-i="13" title="R + Shift (hold Select)"><span class="sglyph"></span></span></div>
+          <div class="ctl keybtn" data-i="8"><span class="glyph"></span><small>X</small><span class="shiftbox" data-i="14" title="X + Shift (hold Select)"><span class="sglyph"></span></span></div>
+          <div class="ctl keybtn" data-i="9"><span class="glyph"></span><small>Y</small><span class="shiftbox" data-i="15" title="Y + Shift (hold Select)"><span class="sglyph"></span></span></div>
+        </div>
+      </div>
+      <p class="hint">Click a button to select it (highlighted <span style="color:var(--sel)">&#9632;</span>),
+         then click a key on the right to assign. The small box in the <b>bottom-right</b> of each key
+         button is its <b>+Shift</b> mapping (hold <b>Select</b> to use it); if a +Shift mapping is blank
+         the core falls back to the unshifted key. <b>Start</b> shows/hides the virtual keyboard and
+         <b>Select</b> is the shift &mdash; neither is mapped here.</p>
+      <div class="fname-row">
+        <input type="text" id="fname" value="joy_map" spellcheck="false"
+               title="Filename for the saved .a2k (.a2k is added automatically)">
+      </div>
+      <div class="actions">
+        <button class="act save" id="save">Save .a2k</button>
+        <button class="act ghost" id="load">Load .a2k&hellip;</button>
+        <button class="act ghost" id="reset">Reset to default</button>
+        <input type="file" id="file" accept=".a2k,.bin,application/octet-stream" hidden>
+      </div>
+      <div class="status" id="status"></div>
+      <div class="hex" id="hex"></div>
+    </div>
+
+    <div class="card">
+      <h2>Apple II keyboard</h2>
+      <div class="kb" id="kb"></div>
+      <p class="hint">Assign the selected button (or +Shift box) to any key.<br>
+         <b>None</b> unmaps it (the button does nothing).</p>
+    </div>
+  </div>
+</div>
+
+<script>
+// ---- Apple II K-bus codes (7-bit, what the CPU reads) ----
+// Letters/digits are their ASCII values; specials are Apple II scan codes
+// (verified against rtl/roms/keyboard.hex).
+const C = {
+  '0':0x30,'1':0x31,'2':0x32,'3':0x33,'4':0x34,'5':0x35,'6':0x36,'7':0x37,'8':0x38,'9':0x39,
+  'A':0x41,'B':0x42,'C':0x43,'D':0x44,'E':0x45,'F':0x46,'G':0x47,'H':0x48,'I':0x49,'J':0x4A,
+  'K':0x4B,'L':0x4C,'M':0x4D,'N':0x4E,'O':0x4F,'P':0x50,'Q':0x51,'R':0x52,'S':0x53,'T':0x54,
+  'U':0x55,'V':0x56,'W':0x57,'X':0x58,'Y':0x59,'Z':0x5A,
+  'SPC':0x20, 'RET':0x0D, 'TAB':0x09, 'ESC':0x1B, 'DEL':0x7F,
+  'UP':0x0B, 'DN':0x0A, 'LFT':0x08, 'RGT':0x15, 'NONE':0x00
+};
+
+// 16-byte .a2k = the joy_map table itself (packed layout, matches joy_to_key.v):
+//   [0..3] = right,left,down,up
+//   [4..9] = A,B,L,R,X,Y  (unshifted)
+//   [10..15] = A,B,L,R,X,Y (shifted, Select held)
+// Start (bit 6) and Select (bit 7) are reserved and have no byte.
+const DEFAULT = [0x4B,0x4A,0x4D,0x49,
+                 0x55,0x4F,0x00,0x00,0x00,0x00,
+                 0x00,0x00,0x00,0x00,0x00,0x00];
+let map = DEFAULT.slice();
+let sel = 0;   // currently selected .a2k byte index
+
+// human name for each .a2k byte (for the status line)
+const BYTE_NAME = {
+  0:'Right',1:'Left',2:'Down',3:'Up',
+  4:'A',5:'B',6:'L',7:'R',8:'X',9:'Y',
+  10:'A+Shift',11:'B+Shift',12:'L+Shift',13:'R+Shift',14:'X+Shift',15:'Y+Shift'
+};
+
+// keyboard layout rows (label, code-key, optional css class)
+const ROWS = [
+  [['ESC','ESC'],['1','1'],['2','2'],['3','3'],['4','4'],['5','5'],['6','6'],['7','7'],['8','8'],['9','9'],['0','0'],['DEL','DEL']],
+  [['Q','Q'],['W','W'],['E','E'],['R','R'],['T','T'],['Y','Y'],['U','U'],['I','I'],['O','O'],['P','P']],
+  [['A','A'],['S','S'],['D','D'],['F','F'],['G','G'],['H','H'],['J','J'],['K','K'],['L','L']],
+  [['Z','Z'],['X','X'],['C','C'],['V','V'],['B','B'],['N','N'],['M','M']],
+  [['TAB','TAB'],['SPC','SPC','space'],['RET','RET'],['LFT','LFT'],['UP','UP'],['DN','DN'],['RGT','RGT'],['NONE','NONE','none']],
+];
+const LABEL = {SPC:'Space',RET:'Enter',TAB:'Tab',ESC:'Esc',DEL:'Del',
+               UP:'\u2191',DN:'\u2193',LFT:'\u2190',RGT:'\u2192',NONE:'None'};
+
+function codeToChar(c){
+  if (c===0) return '\u2014';
+  const n={0x0D:'\u23CE',0x09:'\u21E5',0x1B:'\u238B',0x7F:'\u232B',0x20:'\u2423',
+           0x0B:'\u2191',0x0A:'\u2193',0x08:'\u2190',0x15:'\u2192'};
+  if (n[c]) return n[c];
+  if (c>=0x20 && c<0x7F) return String.fromCharCode(c);
+  return '0x'+c.toString(16).toUpperCase().padStart(2,'0');
+}
+
+const $ = s => document.querySelector(s);
+const mainEls  = [...document.querySelectorAll('.ctl[data-i]')];
+const shiftEls = [...document.querySelectorAll('.shiftbox[data-i]')];
+
+function render(){
+  mainEls.forEach(el=>{
+    const i=+el.dataset.i, c=map[i];
+    el.classList.toggle('sel', i===sel);
+    el.classList.toggle('none', c===0);
+    el.querySelector('.glyph').textContent = (c===0) ? '' : codeToChar(c);
+  });
+  shiftEls.forEach(el=>{
+    const i=+el.dataset.i, c=map[i];
+    el.classList.toggle('sel', i===sel);
+    el.classList.toggle('none', c===0);
+    el.querySelector('.sglyph').textContent = (c===0) ? '' : codeToChar(c);
+  });
+  renderHex();
+}
+
+function renderHex(){
+  const bytes = map.map(v=>v.toString(16).toUpperCase().padStart(2,'0')).join(' ');
+  $('#hex').innerHTML =
+    '<b>.a2k (16 bytes)</b><br>'+
+    'right left down up &nbsp;&nbsp; A B L R X Y<br>'+
+    '<span class="dim">A+sh B+sh L+sh R+sh X+sh Y+sh</span><br>'+
+    bytes;
+}
+
+function select(i){ sel=i; render(); }
+function assign(code){ map[sel]=code; render();
+  $('#status').textContent = 'Assigned '+BYTE_NAME[sel]+' = '+codeToChar(code)+' (0x'+
+    code.toString(16).toUpperCase()+')'; }
+
+// Event delegation: a click on a +Shift box selects that shift byte; a click
+// on a button body selects its (unshifted) byte.
+document.querySelector('.pad').addEventListener('click',(e)=>{
+  const box = e.target.closest('.shiftbox');
+  if (box){ select(+box.dataset.i); return; }
+  const ctl = e.target.closest('.ctl[data-i]');
+  if (ctl) select(+ctl.dataset.i);
+});
+
+// build keyboard
+const kb=$('#kb');
+ROWS.forEach(row=>{
+  const r=document.createElement('div'); r.className='krow';
+  row.forEach(([lab,ck,cls])=>{
+    const k=document.createElement('div');
+    k.className='key'+(cls?' '+cls:'');
+    k.textContent=LABEL[lab]||lab;
+    k.title=lab+'  0x'+C[ck].toString(16).toUpperCase();
+    k.addEventListener('click',()=>assign(C[ck]));
+    r.appendChild(k);
+  });
+  kb.appendChild(r);
+});
+
+$('#save').addEventListener('click',()=>{
+  const bytes=new Uint8Array(16);
+  for(let i=0;i<16;i++) bytes[i]=map[i]&0x7F;
+  const blob=new Blob([bytes],{type:'application/octet-stream'});
+  const url=URL.createObjectURL(blob);
+  let name=($('#fname').value||'').trim()||'joy_map';
+  if(!name.toLowerCase().endsWith('.a2k')) name+='.a2k';
+  const a=document.createElement('a'); a.href=url; a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  $('#status').textContent='Saved '+name+' (16 bytes). Copy it to your SD card and load via OSD \u2192 System & BIOS \u2192 "Load Joy Map".';
+});
+$('#load').addEventListener('click',()=>$('#file').click());
+$('#file').addEventListener('change',(e)=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=(ev)=>{
+    const b=new Uint8Array(ev.target.result);
+    // A byte with bit 7 set is invalid (matches the core): show it as blank
+    // (no key) rather than dropping the bit into a random low-7-bit value.
+    for(let i=0;i<16;i++) map[i]=(i<b.length)?((b[i]>127)?0:(b[i]&0x7F)):0;
+    render();
+    $('#status').textContent='Loaded '+f.name+' ('+b.length+' bytes).';
+  };
+  rd.readAsArrayBuffer(f);
+  e.target.value='';
+});
+$('#reset').addEventListener('click',()=>{ map=DEFAULT.slice(); render();
+  $('#status').textContent='Reset to default (IJKM + A=U + B=O; rest blank).'; });
+
+render();
+</script>
+</body>
+</html>

@@ -67,6 +67,10 @@ set_global_assignment -name SEED 1
 #use only 1MB per frame for scaler to free ~21MB DDR3 RAM
 #set_global_assignment -name VERILOG_MACRO "MISTER_SMALL_VBUF=1"
 
+# Joy-to-key: map digital joystick bits to Apple II keystrokes (rtl/osk/joy_to_key.v).
+# Set to 1 to build the feature in; with 0/absent the design is bit-identical.
+set_global_assignment -name VERILOG_MACRO "JOY_TO_KEY=1"
+
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip

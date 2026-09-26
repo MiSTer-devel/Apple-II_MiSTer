@@ -148,7 +148,7 @@ begin
 						end
 						else
 						begin
-							BIT <= BIT + 1;
+							BIT <= BIT + 3'd1;
 							STATE <= 6'b010000;
 						end
 					end
@@ -193,7 +193,7 @@ begin
 			if(RX_DATA)
 				STATE <= 6'b000000;
 		end
-		default: STATE <= STATE + 1;
+		default: STATE <= STATE + 6'd1;
 		endcase
 	end
 end

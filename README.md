@@ -4,25 +4,31 @@ This is a MiSTer port of the Apple IIe core from MiST.
 
 ## Description
 
-This the MiST port of a reconstruction of an 1980s-era Apple ]\[+ implemented in VHDL for FPGAs.  
-Original for the DE2: http://www1.cs.columbia.edu/~sedwards/apple2fpga/  
-Port for the MiST: http://ws0.org/tag/apple2/
+Reconstruction of an 1980s-era Apple //e implemented in VHDL for FPGAs.  
+
+Originally ported from MiST: https://github.com/gyurco/apple2efpga, 
+itself a port from DE2: http://www1.cs.columbia.edu/~sedwards/apple2fpga/  
 
 ## Features
 
-* disk loading via osd. supported formats: .nib, .dsk, .do, .po 
-NOTE: only .nib will persist saves to disk
+* Disk loading via OSD, supports floppes in .woz, .nib, .dsk, .do, .po formats (NOTE: only .woz will persist saves to disk)
 * HDD loading via osd
-* Tape loading via the ADC-in
 * Selectable 6502 or 65C02 CPU
-* Load custom video ROM (default built-in: US/UK)
-* Joystick support
+* Save States (save/restore CPU and memory state to SD card)
+* Joystick support (map it in OSD menu)
+* Virtual On-Screen keyboard (press "Start" button on joypad)
+* Joy-2-key support, use joystick to send key presses, load profile from disk
 * Scanlines
 * Color, amber, green and black&white monitor
-* selection of color palette (NTSC //e, Apple IIgs, AppleWin, Custom)
-* Load custom palette from file 
+* selection of display type: RGB Monitor (sharp pixels, VGA-like), Color TV (composite NTSC)
+* selection of RGB palettes: (NTSC //e, Apple IIgs, AppleWin, Custom)
+* Load Custom RGB Monitor palette from file 
+* selection of Color TV presets (adjusts hue, saturation, etc.)
 * Language card in slot 0
-* ProdDOS compatible clock card in slot 1
+* Tape loading via the ADC-in
+* Load custom video ROM (default built-in: US/UK)
+* Optional display of disk state (disk spinning, disk read/write, HDD mounted, HDD read/write)
+* No-Slot Clock
 * Super Serial Card in slot 2
 * 64K base + 64K auxilary RAM with 80 column and double hi-res support (256KB total with Saturn 128K)
 * Saturn 128k RAM expansion in slot 5 (get the utility disks from here: http://apple2online.com/?page_id=3447 , under "Saturn RAMSoft")
@@ -33,13 +39,16 @@ NOTE: only .nib will persist saves to disk
 * Win/Cmd Key - Closed Apple
 * Alt Key - Open Apple
 * F2 - RESET key
+* F5 - Load State from current slot (change slot in OSD, four available)
+* F6 - Save State in current slot (change slot in OSD, four available)
 * F8 - cycle through color palettes (NTSC, Apple IIgs, AppleWin, Custom)
 * F9 - cycle through display monitor modes (color, b&w, green, amber)
+* F10 - display/hide on-screen virtual keyboard
 
 ## Apple II slot assignments
 
 * Slot 0 - language card
-* Slot 1 - clock card (PRODOS compatible)
+* Slot 1 - free 
 * Slot 2 - Super Serial Card
 * Slot 3 - 80 col + 64K RAM expansion (//e)
 * Slot 4 - Mockinboard model A (six audio channels)
@@ -49,9 +58,11 @@ NOTE: only .nib will persist saves to disk
 
 ## Disk format notes
 
-Apple-II has a big mess in disk formats. DSK image may contain either DO or PO format. Even PO and DO may contain opposite format. So if PO disk doesn't work, then try to rename it to DO. If DO or DSK doesn't work then try to rename it to PO.
+Apple-II has a big mess in disk formats. We mainly support WOZ since it is the modern standard for A2 emulation.
+Other formats are supported by doing a conversion on the fly, but they won't write back to disk.W
 
-For HDD, only HDV images (raw ProDOS partition images) 32MB in size are supported. 2MG images may work if the 64-byte header is removed.
+For HDD, only HDV images (raw ProDOS partition images) 32MB in size are supported. 
+2MG images may work if the 64-byte header is removed.
 ```bash
 dd if=diskimage.2mg of=diskimage.hdv bs=64 skip=1
 ```
@@ -59,14 +70,57 @@ dd if=diskimage.2mg of=diskimage.hdv bs=64 skip=1
 
 ## Instructions
 
-Put disk files into the `/games/Apple-II/` folder.
+* Put disk files into the `/games/Apple-II/` folder.
+* Copy Palettes under the  `/games/Apple-II/Palettes` folder.
+* Copy key mappings under the  `/games/Apple-II/Joy2key` folder.
 
-On the "Apple ][" boot screen open the OSD with F12 and choose a disk. It will boot the disk automatically. 
+On the "Apple ][" boot screen open the OSD with F12 and choose a disk. 
+It will boot the disk automatically. 
 
 If you press reset (the right button on the MiST) you'll enter Applesoft with the ] prompt.
 From here you have some limited commands. See: http://www.landsnail.com/a2ref.htm
 
-If you want to boot another disk choose a .nib image via the osd and type the following:
+## Credits
+
+This core is the result of the efforts of many developers over the span of years:
+* **Stephen Edwards**: Original Apple II+ core for the DE2
+* **Gyurco**: MiST core main maintainer, Mouse Card, etc.
+* **Wsoltys**: Mockingboard, Saturn Card support, etc.
+* **AlanSWX**: WOZ support, Super Serial Card, Mouse Card, etc.
+* **Kitrinx**: New CPU code (high accuracy 6502 and 65c02 enabling save states), NTSC Composite Decoder video module
+* **Newsdee**: Virtual Keyboard, Joy2Key, Palette and Video Presets, Save States, OSD curation.
+
+## Using the Virtual Keyboard
+
+Map joystick buttons to the core in order to use the virtual keyboard. 
+(you will notice you are prompred for more buttons than a normal Apple II controller)
+
+The core assumes the convention of a SNES-style controller:
+- **Start**: Show/Hide Virtual Keyboard
+- **Select**: Change opacity of Virtual Keyboard (100%/75%/50%/25%)
+- **L**: Move Virtual Keyboard on top of the screen (and toggle back)
+- **R**: Press Enter
+- **D-Pad**: Select key 
+- **A**: Press selected key
+- **B**: Back (Apple II does not have a "Backspace", programs relied on back arrow)
+- **X**: Press Space 
+
+In addition the keyboard has a CMD button where the Apple II "Reset" key was. 
+You can use this to trigger special Apple II shortcuts:
+- **WARM** - Warm Reboot (Ctrl + Reset)
+- **COLD** - Cold Boot, sends Ctrl + Open Apple + Reset
+- **TEST** - Test Boot, sends Ctrl + Closed Apple + Reset
+
+## Save States
+
+The core supports save states, backing up the CPU state and 128K of RAM to SD card. You can save up to 4 slots, selectable in OSD.
+**Note** that disk contents (floppy or HDD) are __not__ part of the save state - similar to how a save state would work on real hardware.
+
+
+
+## Advanced usage
+
+If you want to boot another disk choose a .woz, .dsk, or .nib image via the osd and type the following:
 
 ```
 ]PR#6
@@ -104,6 +158,7 @@ Install the acme cross-assembler: https://sourceforge.net/projects/acme-crossass
 acme -o clock.bin clock.asm
 srec_cat clock.bin --binary -o clock2.hex --ascii_hex
 ```
+
 
 ### Pre-MiST ReadMe for historical purposes:
 
