@@ -55,7 +55,7 @@ reg [10:0] hcount = 0;
 reg [5:0] vcount = 0;
 reg vbl_delayed = 0;
 
-reg [23:0] previous_line_rgb [0:559];
+reg [23:0] previous_line_rgb [0:566];
 reg previous_line_valid = 0;
 reg seam_active_d = 0;
 reg [10:0] comb_hcount = 0;
@@ -426,7 +426,7 @@ always @(posedge CLK_14M) begin: pixel_generator
         raw_hcount <= hcount;
         raw_vbl <= VBL;
         raw_color_line <= COLOR_LINE;
-        raw_active <= !HBL && hcount < 560;
+        raw_active <= !HBL && hcount < 567;
         raw_color_mode <= SCREEN_MODE == 2'b00;
     end
 end

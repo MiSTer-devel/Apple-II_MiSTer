@@ -71,6 +71,10 @@ module video_pipeline (
   localparam SEAM_RUN_WIDE = 1'b0;
   wire [7:0] r_vga, g_vga, b_vga;
   wire       hs_vga, vs_vga, hbl_vga, vbl_vga;
+  // The IIe starts 80-column text 7 dots before 40-column text, so the display
+  // window opens 7 cycles early (HBL_E) or the first 80-column character is
+  // blanked. The window grows to 567 cycles.
+  wire       HBL_E;
   vga_controller tv (
     .CLK_14M(CLK_14M),
     .VIDEO(VIDEO),
@@ -82,7 +86,7 @@ module video_pipeline (
     .SEAM_RUN_WIDE(SEAM_RUN_WIDE),
     .RUN_FILL_OK(RUN_FILL_OK),
     .NTSC_VERTICAL_COMB(NTSC_VERTICAL_COMB),
-    .HBL(HBL),
+    .HBL(HBL_E),
     .VBL(VBL),
     .VGA_HS(hs_vga),
     .VGA_VS(vs_vga),
@@ -117,6 +121,8 @@ module video_pipeline (
       else     hblank_cnt <= 10'd0;
     end
   end
+
+  assign HBL_E = HBL & (hblank_cnt < 10'd345);
 
   reg         hbl_d;
   wire        hbl_rise   = HBL & ~hbl_d;
@@ -182,7 +188,7 @@ module video_pipeline (
     .pixel_delay(2'd0),
     .hs(hs_c),
     .vs(vs_c),
-    .hb(HBL),
+    .hb(HBL_E),
     .vb(VBL),
     .color_line(COLOR_LINE),
     .sat(p_sat),
