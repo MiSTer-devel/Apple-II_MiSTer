@@ -1020,11 +1020,14 @@ module apple2_top(
     // now would drop WR_n before the RAM commits and lose the write.
     wire z80_wait_n = ~(zsel & z80_vid_cen & ~z80_mreq_n & z80_rfsh_n);
 
-    // ponytail: Z80 state is not in save states; allow_ss is blocked instead.
-    wire z80_cen = (PHASE_ZERO_F | z80_vid_cen) & zsel & machine_ce & ~cpu_stall;
+    // The core latches CPU read data (CPU_DL) on the PHASE_ZERO_F edge itself,
+    // so step the Z80 one clock later -- the same edge the 6502 uses (CPU_EN).
+    reg z80_cpu_cen = 1'b0;
+    always @(posedge CLK_14M) z80_cpu_cen <= PHASE_ZERO_F;
 
-    // RAM data is only valid at the end of the CPU phase, which is why the read
-    // is captured on PHASE_ZERO_F and not PHASE_ZERO_R.
+    // ponytail: Z80 state is not in save states; allow_ss is blocked instead.
+    wire z80_cen = (z80_cpu_cen | z80_vid_cen) & zsel & machine_ce & ~cpu_stall;
+
     T80s #(.Mode(0), .T2Write(1), .IOWait(0)) softcard(
         .RESET_n(~reset),
         .CLK(CLK_14M),
