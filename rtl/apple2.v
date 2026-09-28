@@ -63,7 +63,12 @@ module apple2(
     ss_wren,
     ss_rdata,
     machine_ce,
-    cpu_frozen
+    cpu_frozen,
+    Z80_EN,
+    Z80_A,
+    Z80_DO,
+    Z80_WE,
+    CPU_DI
 );
     input         CLK_14M;		// 14.31818 MHz master clock
     output        CLK_2M;
@@ -124,6 +129,13 @@ module apple2(
     output [63:0] ss_rdata;        // selected CPU savestate read data
     input         machine_ce;      // normal machine state enable
     output        cpu_frozen;      // STALL held at a CPU boundary
+    // Z80 Softcard: when Z80_EN is set the Z80 drives the CPU bus in place of
+    // the (frozen) 6502, so I/O, ROM, language card and slots decode as usual.
+    input         Z80_EN;
+    input  [15:0] Z80_A;
+    input  [7:0]  Z80_DO;
+    input         Z80_WE;
+    output [7:0]  CPU_DI;          // data to the CPU (D_IN)
 
     // Clocks
     wire          CLK_7M;
@@ -384,7 +396,7 @@ module apple2(
     always @(*)
     begin: aux_ctrl
         aux = 1'b0;
-        if (ram_card_sel == 1'b1)
+        if (ram_card_sel == 1'b1 || Z80_EN)		// the Z80 only uses main RAM
             aux = 1'b0;
         else if (A[15:9] == 7'b0000000 | A[15:14] == 2'b11)		// Page 00,01,C0-FF
             aux = ALTZP;
@@ -637,9 +649,10 @@ module apple2(
         .ss_rdata(video_ss_rdata)
     );
 
-    assign we = (cpu == 1'b0) ? N6502_WE : N65C02_WE;
-    assign A = (cpu == 1'b0) ? N6502_A : N65C02_A;
-    assign D_OUT = (cpu == 1'b0) ? N6502_DO : N65C02_DO;
+    assign we = Z80_EN ? Z80_WE : (cpu == 1'b0) ? N6502_WE : N65C02_WE;
+    assign A = Z80_EN ? Z80_A : (cpu == 1'b0) ? N6502_A : N65C02_A;
+    assign D_OUT = Z80_EN ? Z80_DO : (cpu == 1'b0) ? N6502_DO : N65C02_DO;
+    assign CPU_DI = D_IN;
     // DBG_DI: data as seen by the NMOS CPU - dout during a write, din during a
     // read. The nmos6502 core has no T65-style DI loopback, so derive it here.
     assign DBG_DI = N6502_WE ? N6502_DO : D_IN;

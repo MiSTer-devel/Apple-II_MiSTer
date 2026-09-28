@@ -132,7 +132,8 @@ module apple2_top(
     mouse_5_inslot,
     mb_4_inslot,
     mb_5_inslot,
-    saturn_5_inslot
+    saturn_5_inslot,
+    softcard_4_inslot
 );
     input         CLK_14M;
     input         CLK_50M;
@@ -284,6 +285,7 @@ module apple2_top(
     input         mb_4_inslot;
     input         mb_5_inslot;
     input         saturn_5_inslot;
+    input         softcard_4_inslot; // Microsoft Z80 Softcard (slot 4)
 
     wire          CLK_2M;
     reg           CLK_2M_D;
@@ -341,6 +343,30 @@ module apple2_top(
     reg           reset;
 
     wire [17:0]   a_ram;
+
+    // ------------------------------------------------------------------
+    // Microsoft Z80 Softcard (slot 4)
+    //
+    // Adapted from the apple2efpga MiST port, itself derived from
+    // system.v (a2e128 core) by Jesus Arias.
+    //
+    // The 6502/65C02 lives inside the apple2 core, so the Z80 cannot be
+    // The 6502 is frozen via CPU_WAIT and the Z80 drives the core's CPU
+    // bus (Z80_EN), so address decoding, I/O, ROM and the language card
+    // work exactly as for the 6502. Video phases pass through
+    // untouched.
+    // ------------------------------------------------------------------
+    wire          z80_mreq_n, z80_rd_n, z80_wr_n, z80_rfsh_n;
+    wire [15:0]   z80_A;
+    wire [7:0]    z80_DO;
+    reg  [3:0]    z80_ham;
+    wire [15:0]   z80_addr_x = {z80_ham, z80_A[11:0]};
+    wire          z80_mem_we = ~z80_wr_n & ~z80_mreq_n & z80_rfsh_n;
+    reg           z80_vid_cen = 1'b0;
+    reg  [2:0]    z80_vid_cnt = 3'd0;
+    reg           zsel = 1'b0;
+    reg  [1:0]    zsel_guard = 2'd0;
+    wire [7:0]    z80_DI;
 
     wire [9:0]    psg_4_audio_l;
     wire [9:0]    psg_4_audio_r;
@@ -481,7 +507,7 @@ module apple2_top(
         .CLK_2M(CLK_2M),
         .PALMODE(PALMODE),
         .ROMSWITCH(ROMSWITCH),
-        .CPU_WAIT(CPU_WAIT),
+        .CPU_WAIT(CPU_WAIT | zsel),   // freeze the 6502 while the Z80 runs
         .PHASE_ZERO(PHASE_ZERO),
         .PHASE_ZERO_R(PHASE_ZERO_R),
         .PHASE_ZERO_F(PHASE_ZERO_F),
@@ -531,7 +557,12 @@ module apple2_top(
         .ss_wren(ss_wren),
         .ss_rdata(core_ss_rdata),
         .machine_ce(machine_ce),
-        .cpu_frozen(cpu_frozen)
+        .cpu_frozen(cpu_frozen),
+        .Z80_EN(zsel),
+        .Z80_A(z80_addr_x),
+        .Z80_DO(z80_DO),
+        .Z80_WE(z80_mem_we),
+        .CPU_DI(z80_DI)
     );
 
     assign ss_rdata = (ss_addr == 10'd8) ?
@@ -919,6 +950,105 @@ module apple2_top(
             end
         end
     end
+    // ------------------------------------------------------------------
+    // Microsoft Z80 Softcard (slot 4)
+    // ------------------------------------------------------------------
+
+    // CPU select flip-flop. system.v toggles on any write to $C4xx:
+    //   if ((~cclke)&(ca[15:8]==8'hC4)&we) zsel<=~zsel
+    // There, 'ca' is combinational so the condition clears itself as soon as
+    // the newly active CPU drives the bus. Here both ADDR and z80_A are
+    // registered, so the stale address of the CPU just parked could retrigger
+    // the toggle. The guard counter blanks detection for two CPU cycles,
+    // giving the incoming CPU time to update its address bus.
+    always @(posedge CLK_14M or posedge reset) begin
+        if (reset) begin
+            zsel <= 1'b0;
+            zsel_guard <= 2'd0;
+        end else if (!softcard_4_inslot) begin
+            zsel <= 1'b0;
+            zsel_guard <= 2'd0;
+        end else if (machine_ce && PHASE_ZERO_F) begin
+            if (zsel_guard != 2'd0)
+                zsel_guard <= zsel_guard - 2'd1;
+            // Any write to $C4xx (the Z80's $E4xx) hands the bus to the other
+            // CPU. ADDR/cpu_we come from whichever CPU drives the core bus.
+            else if (ADDR[15:8] == 8'hC4 && cpu_we) begin
+                zsel <= ~zsel;
+                zsel_guard <= 2'd2;
+            end
+        end
+    end
+
+    // Softcard address translation: the card wires the Z80 address bus to the
+    // Apple bus with the top nibble incremented, so CP/M gets contiguous RAM
+    // from $0000 and the Apple I/O page lands where the Z80 will not run code.
+    //   Z80 $0000-$AFFF -> Apple $1000-$BFFF   (main RAM)
+    //   Z80 $B000-$DFFF -> Apple $D000-$FFFF   (language card RAM)
+    //   Z80 $E000-$EFFF -> Apple $C000-$CFFF   (I/O and slot ROM)
+    //   Z80 $F000-$FFFF -> Apple $0000-$0FFF   (zero page and stack)
+    always @* begin
+        case (z80_A[15:12])
+            4'hB:    z80_ham = 4'hD;
+            4'hC:    z80_ham = 4'hE;
+            4'hD:    z80_ham = 4'hF;
+            4'hE:    z80_ham = 4'hC;
+            4'hF:    z80_ham = 4'h0;
+            default: z80_ham = z80_A[15:12] + 4'd1;
+        endcase
+    end
+
+    // The Softcard Z80 ran at 2MHz, twice the Apple bus rate. PHASE_ZERO_F
+    // alone gives 1MHz, so add a second clock enable in the middle of the
+    // video phase, where the RAM is busy with video and not with the Z80.
+    // Internal Z80 operations then run at 2MHz while memory accesses stay at
+    // 1MHz -- correct, since there is one CPU RAM slot per bus cycle.
+    always @(posedge CLK_14M) begin
+        z80_vid_cen <= 1'b0;
+        if (PHASE_ZERO_F)
+            z80_vid_cnt <= 3'd0;
+        else if (!PHASE_ZERO) begin
+            if (z80_vid_cnt != 3'd7)
+                z80_vid_cnt <= z80_vid_cnt + 3'd1;
+            if (z80_vid_cnt == 3'd3)
+                z80_vid_cen <= 1'b1;
+        end
+    end
+
+    // Stall the extra enable on real memory accesses. On a read the RAM data is
+    // not there yet; on a write ram_we is gated by PHASE_ZERO=1, so advancing
+    // now would drop WR_n before the RAM commits and lose the write.
+    wire z80_wait_n = ~(zsel & z80_vid_cen & ~z80_mreq_n & z80_rfsh_n);
+
+    // The core latches CPU read data (CPU_DL) on the PHASE_ZERO_F edge itself,
+    // so step the Z80 one clock later -- the same edge the 6502 uses (CPU_EN).
+    reg z80_cpu_cen = 1'b0;
+    always @(posedge CLK_14M) z80_cpu_cen <= PHASE_ZERO_F;
+
+    // ponytail: Z80 state is not in save states; allow_ss is blocked instead.
+    wire z80_cen = (z80_cpu_cen | z80_vid_cen) & zsel & machine_ce & ~cpu_stall;
+
+    T80s #(.Mode(0), .T2Write(1), .IOWait(0)) softcard(
+        .RESET_n(~reset),
+        .CLK(CLK_14M),
+        .CEN(z80_cen),
+        .WAIT_n(z80_wait_n),
+        .INT_n(1'b1),
+        .NMI_n(1'b1),
+        .BUSRQ_n(1'b1),
+        .M1_n(),
+        .MREQ_n(z80_mreq_n),
+        .IORQ_n(),
+        .RD_n(z80_rd_n),
+        .WR_n(z80_wr_n),
+        .RFSH_n(z80_rfsh_n),
+        .HALT_n(),
+        .BUSAK_n(),
+        .A(z80_A),
+        .DI(z80_DI),
+        .DO(z80_DO)
+    );
+
     assign audio = spk_avg;
     // 3x 10-bit sum needs 11 bits (765+765+512=2042); saturate instead of
     // truncating. Single-MB usage is bit-identical to the old wrap.

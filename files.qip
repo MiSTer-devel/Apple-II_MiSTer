@@ -1,4 +1,5 @@
 set_global_assignment -name SDC_FILE Apple-II.sdc
+set_global_assignment -name QIP_FILE rtl/T80/T80.qip
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/nmos6502/cpu_65c02.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/nmos6502/cpu_alu.sv
 set_global_assignment -name SYSTEMVERILOG_FILE rtl/cpu/wdc65c02/cpu_65c02.sv

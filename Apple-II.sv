@@ -99,7 +99,7 @@ parameter CONF_STR = {
 	"P2-;",
 	"P3,Hardware;",
 	"P3-;",	
-	"P3OST,Slot 4,Mocking board,Mouse,Empty;",
+	"P3OST,Slot 4,Mocking board,Mouse,Z80 Softcard,Empty;",
 	"P3OUV,Slot 5,Mouse,Mocking board,256K Saturn,Empty;",
 	"P3-;",
 	"P3O6,Analog X/Y,Normal,Swapped;",
@@ -193,7 +193,8 @@ wire mouse_4_inslot = status[29:28] == 2'b01;
 wire mouse_5_inslot = status[31:30] == 2'b00;
 wire mb_4_inslot = status[29:28] == 2'b00;
 wire mb_5_inslot = status[31:30] == 2'b01;
-wire saturn_5_inslot = status[31:30] == 2'b10;	
+wire saturn_5_inslot = status[31:30] == 2'b10;
+wire softcard_4_inslot = status[29:28] == 2'b10;	
 
 
 wire [31:0] sd_lba[3];
@@ -622,7 +623,8 @@ apple2_top apple2_top
 	.mouse_5_inslot(mouse_5_inslot),
 	.mb_4_inslot(mb_4_inslot),
 	.mb_5_inslot(mb_5_inslot),
-	.saturn_5_inslot(saturn_5_inslot)
+	.saturn_5_inslot(saturn_5_inslot),
+	.softcard_4_inslot(softcard_4_inslot)
 );
 
 wire [2:0] scale = status[11:9];
@@ -786,7 +788,7 @@ assign ss_rdata = (ss_addr == 10'd10) ? {63'd0, active_cpu} : top_ss_rdata;
 savestate_ui savestate_ui (
 	.clk(clk_sys),
 	.reset(dd_reset),
-	.allow_ss(!saturn_5_inslot && !dd_reset && !ioctl_download && !ss_busy),
+	.allow_ss(!saturn_5_inslot && !softcard_4_inslot && !dd_reset && !ioctl_download && !ss_busy),
 	.ss_busy(ss_busy),
 	.ss_done(ss_done),
 	.ss_error(ss_error),
