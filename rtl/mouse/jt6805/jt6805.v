@@ -31,7 +31,8 @@ module jt6805(
     output            tstop,// timer stop
     output     [12:0] addr, // always valid
     input      [ 7:0] din,
-    output     [ 7:0] dout
+    output     [ 7:0] dout,
+    output            rd   // input sampled on this enabled clock edge
 );
 
 wire [12:0] op0, op1, rslt,md;
@@ -54,6 +55,10 @@ wire       op0inv;
 wire       inc_pc;
 wire       md_shift;
 wire       swi;
+
+// Address alone also selects peripherals during microcode wait cycles.
+// Only fetch consumes din; expose that event to input devices.
+assign rd = !rst && cen && fetch && !wr;
 
 jt6805_ctrl u_ctrl(
     .rst        ( rst       ),

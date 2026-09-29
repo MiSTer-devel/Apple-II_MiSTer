@@ -78,53 +78,54 @@ module applemouse(
     reg           clk_2en;
 
     reg           pressed;
-    reg  [8:0]    mx;
-    reg  [8:0]    my;
+    // Signed pulse backlog, separate from the 9-bit host packet format.
+    // A large report must not clip just because it arrived in one packet.
+    reg signed [31:0] mx;
+    reg signed [31:0] my;
     wire          mcu_wr;
+    wire          mcu_rd;
     wire [12:0]   mcu_addr;
-    wire          mcu_pb_read = clk_2en && !mcu_wr && mcu_addr == 13'd1;
+    // 341-0269 polls movement with LDA $01 at $0403 ($0404 is its operand);
+    // tag the ROM fetch so other port-B reads can't consume queued movement.
+    reg           motion_read_armed;
+    wire          mcu_pb_read = mcu_rd && mcu_addr == 13'd1
+                                && motion_read_armed;
 
-    function automatic [8:0] stepped_backlog;
-        input [8:0] value;
+    always @(posedge CLK_14M) begin
+        if (RESET)
+            motion_read_armed <= 1'b0;
+        else if (mcu_rd)
+            motion_read_armed <= (mcu_addr == 13'h0404);
+    end
+
+    // Each accepted pin phase transition is one coordinate count in 341-0269.
+    // SCALE selects x1, x2, x4 or x8; the top-level default is x1.
+    function automatic [31:0] stepped_backlog;
+        input signed [31:0] value;
         begin
-            if (value[8] == 1'b1)
-                stepped_backlog = value + 9'd1;
-            else if (value != 9'b0)
-                stepped_backlog = value - 9'd1;
+            if (value < 0)
+                stepped_backlog = value + 32'sd1;
+            else if (value != 0)
+                stepped_backlog = value - 32'sd1;
             else
                 stepped_backlog = value;
         end
     endfunction
 
-    function automatic [8:0] saturating_add;
-        input [8:0] backlog;
-        input [8:0] delta;
-        reg signed [9:0] sum;
-        begin
-            sum = $signed({backlog[8], backlog}) + $signed({delta[8], delta});
-            if (sum > 10'sd255)
-                saturating_add = 9'sd255;
-            else if (sum < -10'sd256)
-                saturating_add = 9'sh100;
-            else
-                saturating_add = sum[8:0];
-        end
-    endfunction
-
-    function automatic [8:0] saturating_add_scaled;
-        input [8:0] backlog;
+    function automatic [31:0] saturating_add_scaled;
+        input signed [31:0] backlog;
         input [8:0] delta;
         input [1:0] scale;
-        reg signed [15:0] sum;
+        reg signed [32:0] sum;
         begin
-            sum = $signed({{7{backlog[8]}}, backlog})
-                + ($signed({{7{delta[8]}}, delta}) <<< (scale + 3'd3));
-            if (sum > 16'sd255)
-                saturating_add_scaled = 9'sd255;
-            else if (sum < -16'sd256)
-                saturating_add_scaled = 9'sh100;
+            sum = $signed({backlog[31], backlog})
+                + ($signed({{24{delta[8]}}, delta}) <<< scale);
+            if (sum > 33'sd2147483647)
+                saturating_add_scaled = 32'h7fffffff;
+            else if (sum < -33'sd2147483648)
+                saturating_add_scaled = 32'h80000000;
             else
-                saturating_add_scaled = sum[8:0];
+                saturating_add_scaled = sum[31:0];
         end
     endfunction
 
@@ -133,42 +134,38 @@ module applemouse(
         if (RESET == 1'b1)
         begin
             pressed <= 1'b0;
-            mx      <= 9'b0;
-            my      <= 9'b0;
+            mx      <= 32'sd0;
+            my      <= 32'sd0;
             mcu_pb_in[3:0] <= 4'b0;
         end
         else
         begin
             if (mcu_pb_read)
             begin
-                if (mx[8] == 1'b1)
+                if (mx[31] == 1'b1)
                 begin
-                    mx    <= mx + 1'b1;
+                    mx    <= mx + 32'sd1;
                     mcu_pb_in[1] <= ~mcu_pb_in[1];
-                    if (mcu_pb_in[1] == 1'b0)
-                        mcu_pb_in[0] <= 1'b0;
+                    mcu_pb_in[0] <= 1'b0;
                 end
-                else if (mx != 9'b0)
+                else if (mx != 32'sd0)
                 begin
-                    mx    <= mx - 1'b1;
+                    mx    <= mx - 32'sd1;
                     mcu_pb_in[1] <= ~mcu_pb_in[1];
-                    if (mcu_pb_in[1] == 1'b0)
-                        mcu_pb_in[0] <= 1'b1;
+                    mcu_pb_in[0] <= 1'b1;
                 end
 
-                if (my[8] == 1'b1)
+                if (my[31] == 1'b1)
                 begin
-                    my    <= my + 1'b1;
+                    my    <= my + 32'sd1;
                     mcu_pb_in[3] <= ~mcu_pb_in[3];
-                    if (mcu_pb_in[3] == 1'b0)
-                        mcu_pb_in[2] <= 1'b1;
+                    mcu_pb_in[2] <= 1'b1;
                 end
-                else if (my != 9'b0)
+                else if (my != 32'sd0)
                 begin
-                    my    <= my - 1'b1;
+                    my    <= my - 32'sd1;
                     mcu_pb_in[3] <= ~mcu_pb_in[3];
-                    if (mcu_pb_in[3] == 1'b0)
-                        mcu_pb_in[2] <= 1'b0;
+                    mcu_pb_in[2] <= 1'b0;
                 end
             end
 
@@ -214,10 +211,10 @@ module applemouse(
     always @(posedge CLK_14M)
     begin
         clk_2m_d <= CLK_2M;
-        if (CLK_2M == 1'b1 && clk_2m_d == 1'b0)
-            clk_2en <= 1'b1;
-        else
+        if (RESET)
             clk_2en <= 1'b0;
+        else
+            clk_2en <= CLK_2M && !clk_2m_d;
     end
 
     jtframe_6805mcu mcu(
@@ -225,6 +222,7 @@ module applemouse(
         .clk(CLK_14M),
         .cen(clk_2en),
         .wr(mcu_wr),
+        .rd(mcu_rd),
         .addr(mcu_addr),
         .dout(),
         .irq(1'b0),

@@ -35,7 +35,8 @@ module jtframe_6805mcu #( parameter ROMW = 11)(
     // ROM interface
     output [ROMW-1:0]  rom_addr,
     input      [ 7:0]  rom_data,
-    output reg         rom_cs
+    output reg         rom_cs,
+    output             rd  // qualified CPU input sample; addr is valid
 );
 /* verilator coverage_off */
 localparam MAXPORT  = 13'd12,
@@ -82,7 +83,7 @@ always @(posedge clk, posedge rst) begin
     if( rst ) begin
         pa_latch <= 0; pa_ddr <= 0;
         pb_latch <= 0; pb_ddr <= 0;
-        pc_latch <= 0; pa_ddr <= 0;
+        pc_latch <= 0; pc_ddr <= 0;
         tdr    <= 8'hff;
         tcr    <= 8'h40;
         pres <= 7'h7f;
@@ -153,6 +154,7 @@ jt6805 u_mcu(
     .clk    ( clk       ),
     .cen    ( cen       ),
     .wr     ( wr        ),
+    .rd     ( rd        ),
     .tstop  ( tstop     ),
     .addr   ( addr      ),
     .din    ( din       ),
