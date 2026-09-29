@@ -17,7 +17,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
-module apple2_top(
+module apple2_top (
     CLK_14M,
     CLK_50M,
     reset_cold,
@@ -57,6 +57,10 @@ module apple2_top(
     COLOR_PALETTE,
     NTSC_VERTICAL_COMB,
     use_composite,
+    v5_hue_st,
+    v5_bright_st,
+    v5_sat_st,
+    v5_contrast_st,
     comp_preset,
     comp_hfix,
     comp_hue_adj,
@@ -179,13 +183,20 @@ module apple2_top(
     output        video_switch;
     output        palette_switch;
     input  [1:0]  COLOR_PALETTE;	// 00: Original (//e NTSC), 01: //gs, 02: AppleWin, 03: //c PAL
-    input         NTSC_VERTICAL_COMB;
+    input         NTSC_VERTICAL_COMB;  // old-style 2-line comb gate: 1=On 0=Off, common to RGB and Color TV
     // Composite video switch (see rtl/video/video_pipeline.sv).
-    //   use_composite: "Color sharpness" RGB/Composite (Apple-II_woz status[4]).
+    //   use_composite: "Display Type" (Apple-II_MiSTer status[4:3]) != RGB
+    //                  Monitor: selects the composite (NTSC) path over RGB.
     //   comp_preset:   0=Calibrated 1=Eyeballed 2=Punchy 3=Muted (status[2:1]).
-    //   comp_hfix:     A/B composite right-edge fix (0=current hshift=9,
+    //   comp_hfix:     A/B composite right-edge fix (0=current hshift,
     //                  1=trimmed hshift=0). Composite path only.
     input         use_composite;
+    // v5a (Color TV) OSD tuning knob states (OSD page 0, under Color TV
+    // Preset): pass-through to video_pipeline; state 0 = zero offset.
+    input  [3:0]  v5_hue_st;
+    input  [1:0]  v5_bright_st;
+    input  [2:0]  v5_sat_st;
+    input  [1:0]  v5_contrast_st;
     input  [1:0]  comp_preset;
     input         comp_hfix;
     input  [4:0]  comp_hue_adj;
@@ -572,6 +583,7 @@ module apple2_top(
 
     video_pipeline vp(
         .CLK_14M(CLK_14M),
+        .reset(reset),
         .VIDEO(VIDEO),
         .HBL(HBL),
         .VBL(VBL),
@@ -593,6 +605,10 @@ module apple2_top(
         .ioctl_wr(ioctl_wr),
         .ioctl_wait(ioctl_wait),
         .use_composite(use_composite),
+        .v5_hue_st(v5_hue_st),
+        .v5_bright_st(v5_bright_st),
+        .v5_sat_st(v5_sat_st),
+        .v5_contrast_st(v5_contrast_st),
         .comp_preset(comp_preset),
         .comp_hfix(comp_hfix),
         .comp_hue_adj(comp_hue_adj),

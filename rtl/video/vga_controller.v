@@ -19,9 +19,6 @@ module vga_controller(
     input             COLOR_LINE,
     input      [1:0]  SCREEN_MODE,
     input      [1:0]  COLOR_PALETTE,
-    input             GRAY_SEAM_FIX,
-    input             SEAM_RUN_FILL,
-    input             SEAM_RUN_WIDE,
     input             RUN_FILL_OK,
     input             NTSC_VERTICAL_COMB,
     input             HBL,
@@ -48,6 +45,9 @@ localparam integer VGA_ACTIVE = 282 * 2;
 localparam integer VGA_FRONT_PORCH = 130;
 localparam integer VBL_TO_VSYNC = 33;
 localparam integer VGA_VSYNC_LINES = 3;
+localparam GRAY_SEAM_FIX = 1'b1;
+localparam SEAM_RUN_FILL = 1'b1;
+localparam SEAM_RUN_WIDE = 1'b0;
 
 reg [5:0] shift_reg = 0;
 reg last_hbl = 0;
@@ -426,44 +426,14 @@ always @(posedge CLK_14M) begin: pixel_generator
         raw_hcount <= hcount;
         raw_vbl <= VBL;
         raw_color_line <= COLOR_LINE;
-        raw_active <= !HBL && hcount < 560;
+        raw_active <= !VBL && ((hcount <= 11'd552) ||
+                               (hcount >= 11'd905 && hcount <= 11'd911));
         raw_color_mode <= SCREEN_MODE == 2'b00;
     end
 end
 
 // Preserve the VHDL seam-cleanup pipeline layout and active-window delay.
 integer seam_index;
-
-// Part of the GRAY_SEAM_FIX ("Sharper RGB") feature: the 1-px seam fill.
-// A neutral pixel (low saturation, white-ish or black-ish luma) flanked on
-// both immediate sides by colored (saturated) pixels is a tint-transition
-// seam artifact, so replace it with the nearer colored neighbor (luma
-// distance, tie -> left). Solid neutral bars are untouched: at their edges
-// the other neighbor is neutral too.
-//
-// The decision needs the right neighbor, which is generated one cycle after
-// the center, so the enabled path outputs from the window (one or more extra
-// cycles vs the disabled path). The strobe keeps a constant 16-sample lead
-// over the output content on every path (original: raw + TAD_13; gray fill:
-// window[7] + TAD_15; run fill: window[5] + TAD_15 — the feed sample is 2
-// older, so the same index is 2 more absolute delay), which keeps bar
-// boundaries and seam positions at their original x positions with any
-// combination of options on (verified on colorbars + batman). The inter-line
-// comb skew is unchanged (line-RAM data/strobe and the read address all move
-// together). GRAY_SEAM_FIX=0 stays bit-identical.
-//
-// SEAM_RUN_FILL (optional, requires GRAY_SEAM_FIX): fills 2-3 px neutral
-// runs bounded by colored samples on both sides with the nearer boundary
-// color. SEAM_RUN_WIDE (optional, requires SEAM_RUN_FILL) extends that to
-// 2-5 px runs and adds the edge rule for the first/last pixel of longer
-// runs that sits next to a bounded colored boundary (bit-polarity +
-// immediate-transition gated). The window is 9 samples deep (raw-1 .. raw-9)
-// in all modes; the run-fill center is raw-4 (index 5), 2 cycles older than
-// the gray-fill center raw-2 (index 7), and the TAD feed follows.
-// RUN_FILL_OK is the graphics-mode gate (core: not HIRES or DHIRES, i.e.
-// GR/DHGR only). When it is low the run fill is disabled and the DUT takes
-// the exact SEAM_RUN_FILL=0 path, so HGR is provably unaffected even with
-// SEAM_RUN_FILL/SEAM_RUN_WIDE asserted.
 wire run_fill_en = SEAM_RUN_FILL && RUN_FILL_OK;
 
 // TAD feed index, explicitly 4 bits: the 9-deep window needs 4 bits to
@@ -542,22 +512,10 @@ always @(posedge CLK_14M) begin: seam_cleanup
                     ? seam_rgb_window[4] : seam_rgb_window[6];
             end else begin
                 // v1 did not fire; re-earn fill_ok with the v2/run rules.
-                // This branch is intentionally NOT gated on the base
-                // (fill_ok): the v2 polarity search must keep its shipped
-                // behavior, which also fills invalid line-tail samples
-                // (e.g. rampage2 (546,0): tail white + bit 0 -> true black
-                // in reach). Gating it on the base regressed those to white.
-                // The run rule below carries its own neutral-center gate,
-                // which is essential: without it a colored center between
-                // two neutral neighbors (e.g. brown between white and black)
-                // is misread as a 3-px run through the center and gets
-                // painted over (batman (455,36), found by the decision probe).
                 fill_ok = 0;
                 // A neutral sample whose own source bit matches its rendered
                 // polarity (black on bit 0, white on bit 1) is a true content
-                // sample, whatever branch rendered it; a sample with the
-                // opposite bit is itself an artifact and is excluded as a
-                // target.
+                // sample
                 if (c_luma > 226 && !seam_bit_window[5]) begin
                     // White artifact: nearest true black in reach.
                     if (!seam_bit_window[4] && seam_luma_window[4] < 28) begin
@@ -683,11 +641,7 @@ always @(posedge CLK_14M) begin: seam_cleanup
                                              seam_rgb_window[8]);
                     end
                     // (4) SEAM_RUN_WIDE only. Exactly one side unbounded (a
-                    // neutral run past the window): fill with the visible
-                    // boundary color when the center's source bit matches
-                    // the boundary's luma polarity and the unbounded side
-                    // shows an immediate bit transition (seam artifact, not
-                    // a uniform content region).
+                    // neutral run past the window)
                     else if (SEAM_RUN_WIDE &&
                              ((run_l == 5) != (run_r == 3))) begin
                         if (run_r == 3) begin

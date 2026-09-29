@@ -67,9 +67,14 @@ parameter CONF_STR = {
 	"-;",
 	"S1,HDV;",
 	"-;",
-	"P0O4,Display Type,RGB Monitor,Color TV;",
+	"P0O3,Display Type,RGB Monitor,Color TV;",
 	"D0P0OOP,RGB palette,NTSC //e,IIgs,AppleWin,Custom;",
 	"d0P0O12,Color TV Preset,Calibrated,Eyeballed,Punchy,Muted;",
+	// NTSC fine-tune knobs (for Color TV mode): these are offsets from presets	"P0O[67:64],NTSC Hue,0,-16,-12,-8,-4,+4,+8,+12,+16;",
+	"P0oKL,NTSC Bright,0,-16,+16,+32;",
+	"P0O[71:69],NTSC Sat,0,-16,-8,+8,+16,+32;",
+	"P0o12,NTSC Contrast,0,-16,+16,+32;",
+	"P0-;",
 	"-;",
 	"P1,System & BIOS;",
 	"P1-;",
@@ -90,7 +95,7 @@ parameter CONF_STR = {
 	"P2OG,Pixel Clock,Double,Normal;",
 	"P2OL,Lo-Res Text,Clean,Composite;",
 	"P2oPT,Comp Hue Adj,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15;",
-	"P2oU,Comp right-edge fix,Off,On;",
+	"P2oM,Comp right-edge fix,Off,On;",
 	"P2o0,NTSC Vert. Comb Filter,On,Off;",
 	"P2-;",
 	"P2O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
@@ -172,7 +177,7 @@ pll pll
 
 /////////////////  HPS  ///////////////////////////
 
-wire [63:0] status;
+wire [127:0] status;
 wire  [1:0] buttons;
 wire        forced_scandoubler;
 wire [21:0] gamma_bus;
@@ -292,9 +297,24 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.status(status),
 	// Bit 45 ("Savestates to SDCard"): live user toggle, On by default; the
 	// one-shot boot write sets it high, then the HPS-held value passes through.
-	.status_in({status[63:46],status[45] | ss_boot_clear,status[44:43],virtual_keyboard_enabled_toggle?~status[42]:status[42],virtual_keyboard_transparency_cycle?virtual_keyboard_transparency_req:status[41:40],status[39:26],palette_toggle?palette_req:status[25:24],status[23:21],video_toggle?screen_mode_req:status[20:19],status[18:0]}),
+	.status_in({status[127:68],                                          // P0O[71:69] NTSC Sat (68 free: Sharpness folded into presets); 48/49 = savestate F6/F5 action bits
+		status[67:64],                                          // P0O[67:64] NTSC Hue  state 0 = 0 offset
+		status[63:57],                                          // bits 62-63 free (Black Stretch option removed); P2oPT Comp Hue Adj [61:57]
+		status[56:55],                                          // bits 55-56 free (Comb reverted to P2o0 / bit 32, both modes)
+		status[54:52],                                          // P2oM Comp right-edge fix [54]; P0oKL NTSC Bright [53:52] state 0 = 0 offset
+		status[51:49],                                          // bits 49-51 now free (Sat moved to P0O[71:69])
+		status[48],                                              // bits 48/49 = savestate_ui osd_save/osd_restore (OSD F6/F5 actions)
+		status[47:46],status[45] | ss_boot_clear,status[44:43],
+		virtual_keyboard_enabled_toggle?~status[42]:status[42],
+		virtual_keyboard_transparency_cycle?virtual_keyboard_transparency_req:status[41:40],
+		status[39:35],
+		status[34:33],                                          // P0o12 NTSC Contrast state 0 = 0 offset
+		status[32],status[31:28],                                  // P2o0 NTSC Vert. Comb Filter  state 0 = On (old handling, common to both modes)
+		status[27:26],                                             // OQR Write Protect (drive 1 = bit 26, drive 2 = bit 27)
+		palette_toggle?palette_req:status[25:24],status[23:21],
+		video_toggle?screen_mode_req:status[20:19],status[18:0]}),
 	.status_set(video_toggle || palette_toggle || virtual_keyboard_transparency_cycle || virtual_keyboard_enabled_toggle || ss_boot_clear),
-	.status_menumask({ss_menumask[15:1], status[4]}),
+	.status_menumask({ss_menumask[15:1], display_type}),  // bit0: "Color TV Preset" enabled in composite mode
 	.info_req(ss_info_req),
 	.info(ss_info),
 	.forced_scandoubler(forced_scandoubler),
@@ -461,6 +481,11 @@ reg [1:0] palette_req;
 assign screen_mode = status[20:19];
 assign palette_mode = status[25:24];
 
+// "Display Type" (OSD P0O3, status[3]): 0 = RGB Monitor, 1 = Color TV
+// (composite path); status[4] is unused.
+wire display_type = status[3];
+assign use_composite = display_type;
+
 always @(posedge clk_sys) begin
 	reg old_toggle = 0;
 	reg old_pal_toggle = 0;
@@ -519,10 +544,14 @@ apple2_top apple2_top
 	.SCREEN_MODE( status[20:19] ),
 	.TEXT_COLOR( text_color ),
 	.COLOR_PALETTE(status[25:24]),
-	.use_composite(status[4]),
+	.use_composite(use_composite),
 	.comp_preset(status[2:1]),
-	.comp_hfix(status[62]),
+	.comp_hfix(status[54]),
 	.comp_hue_adj({1'b0, status[61:57]} << 1),
+	.v5_hue_st(status[67:64]),
+	.v5_bright_st(status[53:52]),
+	.v5_sat_st(status[71:69]),
+	.v5_contrast_st(status[34:33]),
 	.NTSC_VERTICAL_COMB(~status[32]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),

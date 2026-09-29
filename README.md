@@ -84,6 +84,7 @@ From here you have some limited commands. See: http://www.landsnail.com/a2ref.ht
 
 This core is the result of the efforts of many developers over the span of years:
 * **Stephen Edwards**: Original Apple II+ core for the DE2
+* **Sorgelig / Alexey Melnikov**: MiSTer core framework and system
 * **Gyurco**: MiST core main maintainer, Mouse Card, etc.
 * **Wsoltys**: Mockingboard, Saturn Card support, etc.
 * **AlanSWX**: WOZ support, Super Serial Card, Mouse Card, etc.
