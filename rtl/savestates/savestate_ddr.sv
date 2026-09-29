@@ -50,6 +50,8 @@ module savestate_ddr #(
   // waitstates, then RELEASE it on the acceptance cycle and track data
   // (reads) / commit (writes) separately.
   //
+  // ddram_* is a level-sampling Avalon-MM slave: hold the request across
+  // waitstates and release it on the acceptance edge (as ddr_svc.sv does).
   always @(posedge clk) begin
     slot_ready <= 1'b0;
 
@@ -80,14 +82,16 @@ module savestate_ddr #(
           end
         end
         READ_ISSUE: begin
-          // ddram_rd is asserted. Hold it across waitstates
+          // Hold ddram_rd across waitstates; the slave accepts on the first
+          // !ddram_busy cycle (acceptance edge) - release it there.
           if (!ddram_busy) begin
             ddram_rd <= 1'b0;
             state <= READ_WAIT;
           end
         end
         READ_WAIT: begin
-          // ddram_rd is already released (deasserted at acceptance)
+          // ddram_rd was released at acceptance (an accepted read cannot be
+          // cancelled); the beat arrives independently via ddram_dout_ready.
           if (ddram_dout_ready) begin
             slot_rdata <= ddram_dout;
             slot_ready <= 1'b1;
@@ -95,7 +99,8 @@ module savestate_ddr #(
           end
         end
         WRITE_WAIT: begin
-          // Hold the write request until the slave commits the beat (waitrequest deasserted)
+          // Hold the write request until the slave commits the beat
+          // (waitrequest deasserted); releasing earlier would lose it.
           if (!ddram_busy) begin
             ddram_we <= 1'b0;
             slot_ready <= 1'b1;
