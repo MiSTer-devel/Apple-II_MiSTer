@@ -136,7 +136,8 @@ parameter CONF_STR = {
 	"jp,Y|P,B;",
 	// Save-state info strings (index 0 is the "I" marker): 1-4 active slot,
 	// 5-12 "State N saved/loaded" (5 + 2*slot + load), 13 Saturn, 14 invalid,
-	// 15 incompatible. Driven on hps_io.info by rtl/savestates/savestate_ui.sv.
+	// 15 incompatible, 16 "Savestates to SDCard" toggle Off. Driven on
+	// hps_io.info by rtl/savestates/savestate_ui.sv.
 	"I,",
 	"Active slot 1,",
 	"Active slot 2,",
@@ -152,7 +153,8 @@ parameter CONF_STR = {
 	"State 4 loaded,",
 	"Save states unavailable (Saturn),",
 	"Invalid or empty state,",
-	"Incompatible state format or CPU;",
+	"Incompatible state format or CPU,",
+	"Save states to SDCard is Off;",
 	"V,v",`BUILD_DATE
 };
 
@@ -288,9 +290,9 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	// Bit 45 ("Savestates to SDCard") is forced low: the option is a disabled
-	// preview and the persistence path is not implemented.
-	.status_in({status[63:46],1'b0,status[44:43],virtual_keyboard_enabled_toggle?~status[42]:status[42],virtual_keyboard_transparency_cycle?virtual_keyboard_transparency_req:status[41:40],status[39:26],palette_toggle?palette_req:status[25:24],status[23:21],video_toggle?screen_mode_req:status[20:19],status[18:0]}),
+	// Bit 45 ("Savestates to SDCard"): live user toggle, On by default; the
+	// one-shot boot write sets it high, then the HPS-held value passes through.
+	.status_in({status[63:46],status[45] | ss_boot_clear,status[44:43],virtual_keyboard_enabled_toggle?~status[42]:status[42],virtual_keyboard_transparency_cycle?virtual_keyboard_transparency_req:status[41:40],status[39:26],palette_toggle?palette_req:status[25:24],status[23:21],video_toggle?screen_mode_req:status[20:19],status[18:0]}),
 	.status_set(video_toggle || palette_toggle || virtual_keyboard_transparency_cycle || virtual_keyboard_enabled_toggle || ss_boot_clear),
 	.status_menumask({ss_menumask[15:1], status[4]}),
 	.info_req(ss_info_req),
@@ -438,9 +440,9 @@ wire [15:0] ss_menumask;
 wire        ss_info_req;
 wire [7:0]  ss_info;
 
-// One-shot startup clear: force the (unimplemented) "Savestates to SDCard"
-// bit 45 low in case an old configuration left it set. The counter
-// saturates at 16 so the clear pulse fires exactly once after reset.
+// "Savestates to SDCard" toggle
+wire        ss_sd_enabled = status[45];
+
 reg  [4:0] ss_boot_cnt;
 reg        ss_boot_clear;
 always @(posedge clk_sys) begin
@@ -788,7 +790,7 @@ assign ss_rdata = (ss_addr == 10'd10) ? {63'd0, active_cpu} : top_ss_rdata;
 savestate_ui savestate_ui (
 	.clk(clk_sys),
 	.reset(dd_reset),
-	.allow_ss(!saturn_5_inslot && !softcard_4_inslot && !dd_reset && !ioctl_download && !ss_busy),
+	.allow_ss(!saturn_5_inslot && !softcard_4_inslot && !dd_reset && !ioctl_download && !ss_busy && ss_sd_enabled),
 	.ss_busy(ss_busy),
 	.ss_done(ss_done),
 	.ss_error(ss_error),
@@ -796,6 +798,7 @@ savestate_ui savestate_ui (
 	.osd_slot(status[47:46]),
 	.osd_save(status[48]),
 	.osd_restore(status[49]),
+	.sd_toggle(status[45]),
 	.hk_save(save_request),
 	.hk_load(load_request),
 	.ss_save_req(ui_save_req),
@@ -809,7 +812,7 @@ savestate_ui savestate_ui (
 savestate_manager state_manager (
 	.clk(clk_sys), .reset(dd_reset),
 	.request_save(ui_save_req), .request_load(ui_load_req),
-	.allow_save_state(!saturn_5_inslot),
+	.allow_save_state(!saturn_5_inslot && ss_sd_enabled),
 	.cpu_type(current_cpu), .cpu_frozen(cpu_frozen),
 	.stall(), .machine_ce(machine_ce), .busy(ss_busy), .done(ss_done),
 	.error(ss_error), .error_code(ss_error_code), .locked_cpu_type(ss_locked_cpu),

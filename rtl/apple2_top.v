@@ -660,16 +660,10 @@ module apple2_top(
 
     assign DISK_ACT = ~(D1_ACTIVE | D2_ACTIVE);
 
-    // WOZ Disk II slot controller (rtl/woz/disk_ii_woz.sv): replaces
-    // disk_ii + drive_ii x2 + the track buffer bus.  Reads the .woz image
-    // over the hps_io SD block interface (one channel per drive); the
-    // hps_io streaming protocol is exactly what the WOZ expects, and
-    // sd_blk_cnt is left 0 (single-block requests).  IMG_MOUNTED is a
-    // LEVEL (the wrapper latches the hps_io mount pulse).  DD_RESET is
-    // reset_cold: a cold reset re-seats the drives; a warm reset leaves
-    // them spinning (real-machine behavior).
+    // WOZ Disk II slot controller (rtl/woz/disk_ii_woz.sv)
+    wire clk_14m_disk = CLK_14M & machine_ce & ~cpu_stall;
     disk_ii_woz disk(
-        .CLK_14M(CLK_14M),
+        .CLK_14M(clk_14m_disk),
         .RESET(reset),
         .DD_RESET(reset_cold),
         .PHASE_ZERO(PHASE_ZERO),
