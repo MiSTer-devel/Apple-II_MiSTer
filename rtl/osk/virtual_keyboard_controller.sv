@@ -144,16 +144,18 @@ function automatic direction_held(input [2:0] held_direction, input [3:0] direct
 	end
 endfunction
 
-// Combined 4-bit direction: digital D-pad OR analog stick, applying a deadzone to reduce noise
+// Combined 4-bit direction: digital D-pad OR analog stick (deadzone)
 wire signed [7:0] osk_dz = $signed(ANALOG_DEADZONE[7:0]);
 wire signed [7:0] osk_x = $signed(joystick_analog[7:0]);
 wire signed [7:0] osk_y = $signed(joystick_analog[15:8]);
-wire [3:0] directions = {
-	(joystick[3] | (osk_y >  osk_dz) && !joystick[2]),
-	(joystick[2] | (osk_y < -osk_dz) && !joystick[3]),
-	(joystick[1] | (osk_x < -osk_dz) && !joystick[0]),
-	(joystick[0] | (osk_x >  osk_dz) && !joystick[1])
+wire [3:0] dpad_dir = joystick[3:0];
+wire [3:0] analog_dir = {
+	(osk_y >  osk_dz),   // up
+	(osk_y < -osk_dz),   // down
+	(osk_x < -osk_dz),   // left
+	(osk_x >  osk_dz)    // right
 };
+wire [3:0] directions = |dpad_dir ? dpad_dir : analog_dir;
 wire [2:0] next_direction = requested_direction(directions);
 wire locked_direction_held = direction_held(direction, directions);
 wire direction_press = active && next_direction != DIR_NONE &&
