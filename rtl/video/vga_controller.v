@@ -23,6 +23,13 @@ module vga_controller(
     input             NTSC_VERTICAL_COMB,
     input             HBL,
     input             VBL,
+    input             EARLY_VIDEO,
+    input             HGR_MODE,
+    input             HGR80_MODE,
+    input             GR2,
+    input             TEXT_MODE,
+    input             COL80,
+    input             DHIRES_MODE,
     output reg        VGA_HS,
     output reg        VGA_VS,
     output            VGA_HBL,
@@ -47,6 +54,10 @@ localparam integer VBL_TO_VSYNC = 33;
 localparam integer VGA_VSYNC_LINES = 3;
 localparam GRAY_SEAM_FIX = 1'b1;
 localparam SEAM_RUN_FILL = 1'b1;
+// SEAM_NEUTRAL_RUN_GUARD: v2/fallback seam rules eat neutral samples with a
+// source-bit/polarity mismatch, but HGR80-quirk-state glyph strokes sit on
+// the "wrong" bit in all-neutral runs, so a colored boundary is required.
+localparam SEAM_NEUTRAL_RUN_GUARD = 1'b1;
 localparam SEAM_RUN_WIDE = 1'b0;
 
 reg [5:0] shift_reg = 0;
@@ -61,6 +72,8 @@ reg seam_active_d = 0;
 reg [10:0] comb_hcount = 0;
 reg [10:0] line_wr_addr = 0;
 reg [23:0] line_wr_data = 0;
+reg [23:0] hgr80_shift_hold = 0;  // one-sample delay: previous-line half of the HGR80 +1px shift
+reg [23:0] hgr80_cur_hold = 0;    // same shift on the current-line display path
 reg line_wr_en = 0;
 reg [23:0] raw_rgb = 0;
 reg raw_bit = 0;
@@ -426,8 +439,13 @@ always @(posedge CLK_14M) begin: pixel_generator
         raw_hcount <= hcount;
         raw_vbl <= VBL;
         raw_color_line <= COLOR_LINE;
-        raw_active <= !VBL && ((hcount <= 11'd552) ||
-                               (hcount >= 11'd905 && hcount <= 11'd911));
+        // Per-mode RGB frame origin: X0 [18..577] in all modes (HPS-stable
+        // for static content); regular HGR and HGR80 use the machine's full
+        // non-wrapping window raw [0..559] (edge content shows unclipped).
+        raw_active <= (HGR80_MODE && !VBL) ? (hcount <= 11'd559)
+                       : ((HGR_MODE && !VBL) ? (hcount <= 11'd559)
+                       : (!VBL &&
+            ((hcount <= 11'd552) || (hcount >= 11'd905 && hcount <= 11'd911))));
         raw_color_mode <= SCREEN_MODE == 2'b00;
     end
 end
@@ -516,7 +534,9 @@ always @(posedge CLK_14M) begin: seam_cleanup
                 // A neutral sample whose own source bit matches its rendered
                 // polarity (black on bit 0, white on bit 1) is a true content
                 // sample
-                if (c_luma > 226 && !seam_bit_window[5]) begin
+                if (c_luma > 226 && !seam_bit_window[5] &&
+                    (!SEAM_NEUTRAL_RUN_GUARD || seam_saturation_window[4] >= 32 ||
+                     seam_saturation_window[6] >= 32)) begin
                     // White artifact: nearest true black in reach.
                     if (!seam_bit_window[4] && seam_luma_window[4] < 28) begin
                         fill_ok = 1; fill_rgb = seam_rgb_window[4];
@@ -527,7 +547,9 @@ always @(posedge CLK_14M) begin: seam_cleanup
                                  seam_luma_window[3] < 28) begin
                         fill_ok = 1; fill_rgb = seam_rgb_window[3];
                     end
-                end else if (c_luma < 28 && seam_bit_window[5]) begin
+                end else if (c_luma < 28 && seam_bit_window[5] &&
+                             (!SEAM_NEUTRAL_RUN_GUARD || seam_saturation_window[4] >= 32 ||
+                              seam_saturation_window[6] >= 32)) begin
                     // Black artifact: nearest true white in reach.
                     if (seam_bit_window[4] && seam_luma_window[4] > 226) begin
                         fill_ok = 1; fill_rgb = seam_rgb_window[4];
@@ -541,7 +563,9 @@ always @(posedge CLK_14M) begin: seam_cleanup
                 end
                 // Fallback for a detected artifact with no matching-polarity
                 // target in reach: nearest settled colored sample.
-                if (fill_ok == 0 && c_luma > 226 && !seam_bit_window[5]) begin
+                if (fill_ok == 0 && c_luma > 226 && !seam_bit_window[5] &&
+                    (!SEAM_NEUTRAL_RUN_GUARD || seam_saturation_window[4] >= 32 ||
+                     seam_saturation_window[6] >= 32)) begin
                     if (seam_settled_window[4] &&
                         seam_saturation_window[4] >= 32) begin
                         fill_ok = 1; fill_rgb = seam_rgb_window[4];
@@ -550,13 +574,15 @@ always @(posedge CLK_14M) begin: seam_cleanup
                         fill_ok = 1; fill_rgb = seam_rgb_window[6];
                     end
                 end else if (fill_ok == 0 && c_luma < 28 &&
-                             seam_bit_window[5]) begin
+                             seam_bit_window[5] &&
+                             (!SEAM_NEUTRAL_RUN_GUARD || seam_saturation_window[4] >= 32 ||
+                              seam_saturation_window[6] >= 32)) begin
                     if (seam_settled_window[4] &&
                         seam_saturation_window[4] >= 32) begin
                         fill_ok = 1; fill_rgb = seam_rgb_window[4];
-                    end else if (seam_settled_window[4] &&
-                                 seam_saturation_window[4] >= 32) begin
-                        fill_ok = 1; fill_rgb = seam_rgb_window[4];
+                    end else if (seam_settled_window[6] &&
+                                 seam_saturation_window[6] >= 32) begin
+                        fill_ok = 1; fill_rgb = seam_rgb_window[6];
                     end
                 end
                 // Run rules (3) and (4): the center plus consecutive neutral
@@ -769,8 +795,24 @@ end
 
 // One-line RGB buffer. Delayed write guarantees read-before-write behavior.
 always @(posedge CLK_14M) begin: vertical_line_buffer
-    current_rgb_q <= seam_rgb;
-    current_timing_active_q <= seam_timing_active;
+    // HGR80 +1px shift: slot k = raw (k-1) via the one-sample hold chain,
+    // slot 0 = black left margin (pre-armed at hcount 22, one cycle before
+    // the window opens, so it lands on frame x0); raw 559 is dropped.
+    // Must be first: seam_timing_active is already open at hcount 22.
+    if (HGR80_MODE && !current_timing_active_q && hcount == 11'd22)
+        current_rgb_q <= 24'h000000;   // margin pixel: frame x0 = black
+    else if (HGR80_MODE && seam_timing_active)
+        current_rgb_q <= hgr80_cur_hold;
+    else
+        current_rgb_q <= seam_rgb;
+    if (HGR80_MODE && seam_timing_active)
+        hgr80_cur_hold <= seam_rgb;    // shift chain, every seam cycle
+    // HGR80 steady-state DE force: every line presents the identical full
+    // [22..581] run, so the active-content edge the TV locks on is clean in
+    // every epoch (the per-line run width was the oscillating quantity).
+    // Vetoed lines (deep VBL, or the fall line) latch VGA_DE=0 and stay invisible.
+    current_timing_active_q <= HGR80_MODE ? (hcount >= 11'd22 && hcount <= 11'd581)
+                                          : seam_timing_active;
     line_valid_q <= previous_line_valid;
     color_mode_q <= seam_color_mode;
     line_wr_en <= 1'b0;
@@ -781,9 +823,20 @@ always @(posedge CLK_14M) begin: vertical_line_buffer
         comb_hcount <= 0;
     end else if (seam_timing_active) begin
         previous_rgb_q <= previous_line_rgb[comb_hcount];
-        line_wr_addr <= comb_hcount;
-        line_wr_data <= seam_rgb;
-        line_wr_en <= 1'b1;
+        if (HGR80_MODE) begin
+            // Previous-line half of the HGR80 +1px shift (current-line half
+            // above): slot 0 = black margin, slot k = raw (k-1). The DE
+            // window is untouched (single 560-run); raw 559 is dropped.
+            line_wr_addr <= comb_hcount;
+            line_wr_data <= (comb_hcount == 11'd0) ? 24'h000000
+                                                   : hgr80_shift_hold;
+            line_wr_en   <= 1'b1;
+            hgr80_shift_hold <= seam_rgb;
+        end else begin
+            line_wr_addr <= comb_hcount;
+            line_wr_data <= seam_rgb;
+            line_wr_en   <= 1'b1;
+        end
         comb_hcount <= comb_hcount + 1'b1;
     end else if (seam_active_d) begin
         previous_line_valid <= 1'b1;

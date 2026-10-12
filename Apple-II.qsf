@@ -71,6 +71,11 @@ set_global_assignment -name SEED 1
 # Set to 1 to build the feature in; with 0/absent the design is bit-identical.
 set_global_assignment -name VERILOG_MACRO "JOY_TO_KEY=1"
 
+# Debug builds: slim peripheral set (DEBUG_NO_CARDS in rtl/apple2_top.v) - Z80 softcard + SIM_FAST stub set
+# (Mockingboard x2, Apple mouse x2, superserial, NSC, HDD) out of the netlist for faster compiles. Uncomment
+# ONLY for a debug compile (debug_compile.bat sets it session-only instead), re-comment before a release build.
+#set_global_assignment -name VERILOG_MACRO "DEBUG_NO_CARDS=1"
+
 source sys/sys.tcl
 source sys/sys_analog.tcl
 source files.qip

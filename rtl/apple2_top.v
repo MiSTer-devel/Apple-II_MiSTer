@@ -17,6 +17,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
+// DEBUG_NO_CARDS (debug builds): maps to the SIM_FAST peripheral stub set
+// (Mockingboard x2, mouse x2, superserial, NSC, HDD + Z80 softcard stub) to
+// cut logic and compile time; set SIM_FAST_HDD as well to keep the HDD.
+`ifdef DEBUG_NO_CARDS
+  `define SIM_FAST
+`endif
+
 module apple2_top (
     CLK_14M,
     CLK_50M,
@@ -57,12 +64,10 @@ module apple2_top (
     COLOR_PALETTE,
     NTSC_VERTICAL_COMB,
     use_composite,
-    v5_hue_st,
-    v5_bright_st,
-    v5_sat_st,
-    v5_contrast_st,
+    comp_bright_st,
+    comp_sat_st,
+    comp_contrast_st,
     comp_preset,
-    comp_hfix,
     comp_hue_adj,
     PALMODE,
     ROMSWITCH,
@@ -188,17 +193,13 @@ module apple2_top (
     //   use_composite: "Display Type" (Apple-II_MiSTer status[4:3]) != RGB
     //                  Monitor: selects the composite (NTSC) path over RGB.
     //   comp_preset:   0=Calibrated 1=Eyeballed 2=Punchy 3=Muted (status[2:1]).
-    //   comp_hfix:     A/B composite right-edge fix (0=current hshift,
-    //                  1=trimmed hshift=0). Composite path only.
     input         use_composite;
-    // v5a (Color TV) OSD tuning knob states (OSD page 0, under Color TV
-    // Preset): pass-through to video_pipeline; state 0 = zero offset.
-    input  [3:0]  v5_hue_st;
-    input  [1:0]  v5_bright_st;
-    input  [2:0]  v5_sat_st;
-    input  [1:0]  v5_contrast_st;
+    // composite (Color TV) OSD knob states (P2 "Audio & Video" NTSC group):
+    // pass-through to video_pipeline; state 0 = zero offset.
+    input  [1:0]  comp_bright_st;
+    input  [1:0]  comp_sat_st;
+    input  [1:0]  comp_contrast_st;
     input  [1:0]  comp_preset;
-    input         comp_hfix;
     input  [4:0]  comp_hue_adj;
     input         PALMODE;		// PAL/NTSC selection
     input         ROMSWITCH;
@@ -336,11 +337,16 @@ module apple2_top (
     wire          VIDEO;
     wire          HBL;
     wire          VBL;
+    wire          TEXT_MODE;
+    wire          EARLY_VIDEO;
+    wire          HGR_MODE;
+    wire          HGR80_MODE;
+    wire          GR2;
+    wire          COL80;
+    wire          DHIRES_MODE;
     wire          COLOR_LINE;
     wire          COLOR_LINE_CONTROL;
     wire          RUN_FILL_OK;
-    wire          TEXT_MODE;
-
     wire [7:0]    GAMEPORT;
 
     wire [7:0]    K;
@@ -540,6 +546,12 @@ module apple2_top (
         .COLOR_LINE(COLOR_LINE),
         .RUN_FILL_OK(RUN_FILL_OK),
         .TEXT_MODE(TEXT_MODE),
+        .EARLY_VIDEO(EARLY_VIDEO),   // flag output unused here
+        .HGR_MODE(HGR_MODE),        // regular-HGR select -> real-machine window
+        .HGR80_MODE(HGR80_MODE),    // quirk-state HGR select -> [32..591] window
+        .GR2(GR2),                  // machine state flag (vga mode selects)
+        .COL80(COL80),              // machine state flag (vga mode selects)
+        .DHIRES_MODE(DHIRES_MODE),  // machine state flag (vga mode selects)
         .HBL(HBL),
         .VBL(VBL),
         .K(K),
@@ -593,10 +605,18 @@ module apple2_top (
         // machine_ce note in video_pipeline.sv).
         .machine_ce(machine_ce),
         .COLOR_LINE(COLOR_LINE_CONTROL),
+        .TEXT_MODE(TEXT_MODE),
+        .LO_RES_TEXT(TEXT_COLOR),
         .SCREEN_MODE(SCREEN_MODE),
         .COLOR_PALETTE(COLOR_PALETTE),
         .RUN_FILL_OK(RUN_FILL_OK),
         .NTSC_VERTICAL_COMB(NTSC_VERTICAL_COMB),
+        .EARLY_VIDEO(EARLY_VIDEO),  // live 80-col-grid flag -> vga window class + composite hshift
+        .HGR_MODE(HGR_MODE),        // regular HGR -> real-machine window + CTV tap 13
+        .HGR80_MODE(HGR80_MODE),    // quirk-state HGR -> [32..591] window + CTV tap idx 3
+        .GR2(GR2),                  // machine state flag (vga mode selects)
+        .COL80(COL80),              // machine state flag (vga mode selects)
+        .DHIRES_MODE(DHIRES_MODE),  // machine state flag (vga mode selects)
         // for custom palette loader
         .ioctl_addr(ioctl_addr),
         .ioctl_data(ioctl_data),
@@ -605,12 +625,10 @@ module apple2_top (
         .ioctl_wr(ioctl_wr),
         .ioctl_wait(ioctl_wait),
         .use_composite(use_composite),
-        .v5_hue_st(v5_hue_st),
-        .v5_bright_st(v5_bright_st),
-        .v5_sat_st(v5_sat_st),
-        .v5_contrast_st(v5_contrast_st),
+        .comp_bright_st(comp_bright_st),
+        .comp_sat_st(comp_sat_st),
+        .comp_contrast_st(comp_contrast_st),
         .comp_preset(comp_preset),
-        .comp_hfix(comp_hfix),
         .comp_hue_adj(comp_hue_adj),
         .R(r),
         .G(g),
@@ -749,7 +767,7 @@ module apple2_top (
 `endif
 
 `ifdef SIM_FAST
-    // SIM_FAST: no Mockingboard in slot 4
+    // SIM_FAST / DEBUG_NO_CARDS: no Mockingboard in slot 4
     assign PSG_4_DO      = 8'b0;
     assign psg_4_oe      = 1'b0;
     assign psg_4_irq_n   = 1'b1;
@@ -780,7 +798,7 @@ module apple2_top (
 `endif
 
 `ifdef SIM_FAST
-    // SIM_FAST: no Mockingboard in slot 5
+    // SIM_FAST / DEBUG_NO_CARDS: no Mockingboard in slot 5
     assign PSG_5_DO      = 8'b0;
     assign psg_5_oe      = 1'b0;
     assign psg_5_irq_n   = 1'b1;
@@ -844,7 +862,7 @@ module apple2_top (
 `endif
 
 `ifdef SIM_FAST
-    // SIM_FAST: no mouse in slot 4
+    // SIM_FAST / DEBUG_NO_CARDS: no mouse in slot 4
     assign MOUSE_4_DO    = 8'b0;
     assign MOUSE_4_OE    = 1'b0;
     assign mouse_4_irq_n = 1'b1;
@@ -872,7 +890,7 @@ module apple2_top (
 `endif
 
 `ifdef SIM_FAST
-    // SIM_FAST: no mouse in slot 5
+    // SIM_FAST / DEBUG_NO_CARDS: no mouse in slot 5
     assign MOUSE_5_DO    = 8'b0;
     assign MOUSE_5_OE    = 1'b0;
     assign mouse_5_irq_n = 1'b1;
@@ -971,6 +989,26 @@ module apple2_top (
     // registered, so the stale address of the CPU just parked could retrigger
     // the toggle. The guard counter blanks detection for two CPU cycles,
     // giving the incoming CPU time to update its address bus.
+    `ifdef DEBUG_NO_CARDS
+    // Debug build (see the DEBUG_NO_CARDS note after the T80s instance): the
+    // softcard is not built; hold the bus hand-off off so the 6502 keeps the
+    // bus, and tie the Z80 bus nets idle.
+    always @(posedge CLK_14M or posedge reset) begin
+        if (reset) begin
+            zsel <= 1'b0;
+            zsel_guard <= 2'd0;
+        end else begin
+            zsel <= 1'b0;
+            zsel_guard <= 2'd0;
+        end
+    end
+    assign z80_mreq_n = 1'b1;
+    assign z80_rd_n   = 1'b1;
+    assign z80_wr_n   = 1'b1;
+    assign z80_rfsh_n = 1'b1;
+    assign z80_A      = 16'h0000;
+    assign z80_DO     = 8'h00;
+    `else
     always @(posedge CLK_14M or posedge reset) begin
         if (reset) begin
             zsel <= 1'b0;
@@ -1058,6 +1096,11 @@ module apple2_top (
         .DI(z80_DI),
         .DO(z80_DO)
     );
+    `endif
+
+    // DEBUG_NO_CARDS (Verilog define; enable via set_global_assignment
+    // VERILOG_MACRO - see debug_compile.bat): debug-build stub set; no
+    // effect on release builds.
 
     assign audio = spk_avg;
     // 3x 10-bit sum needs 11 bits (765+765+512=2042); saturate instead of

@@ -35,6 +35,12 @@ module apple2(
     COLOR_LINE,
     RUN_FILL_OK,
     TEXT_MODE,
+    EARLY_VIDEO,
+    HGR_MODE,
+    HGR80_MODE,
+    GR2,
+    COL80,
+    DHIRES_MODE,
     HBL,
     VBL,
     K,
@@ -96,6 +102,12 @@ module apple2(
     output        COLOR_LINE;
     output        RUN_FILL_OK;
     output        TEXT_MODE;
+    output        EARLY_VIDEO;
+    output        HGR_MODE;
+    output        HGR80_MODE;
+    output        GR2;
+    output reg    COL80;
+    output        DHIRES_MODE;
     output        HBL;
     output        VBL;
     input [7:0]   K;		// Keyboard data
@@ -153,17 +165,17 @@ module apple2(
     wire [15:0]   VIDEO_ADDRESS;
     wire          LDPS_N;
     wire          WNDW_N;
-    wire          GR2;
     wire          SEGA;
     wire          SEGB;
     wire          SEGC;
 
     // Soft switches
     reg [7:0]     soft_switches;
+    // (The $C030/$C034 DHIRES root fix was reverted: the accepted color
+    // phase needs the early machine grid, i.e. the soft_switches[7] quirk.)
     wire          MIXED_MODE;
     wire          PAGE2;
     wire          HIRES_MODE;
-    wire          DHIRES_MODE;
 
     // ][e auxilary switches
     reg           RAMRD;
@@ -174,7 +186,6 @@ module apple2(
     reg           C8ROM;
     reg           ALTZP;
     reg           ALTCHAR;
-    reg           COL80;
     reg           SF_D;
 
     // CPU signals
@@ -418,7 +429,9 @@ module apple2(
 
     always @(posedge CLK_14M)
     begin: softswitches
-        if (ss_wren && (ss_addr == 10'd3))
+        if (reset)
+            soft_switches <= 8'h00;
+        else if (ss_wren && (ss_addr == 10'd3))
             soft_switches <= ss_wdata[7:0];
         else if (machine_ce && PHASE_ZERO_R == 1'b1 & SOFTSWITCH_SELECT == 1'b1)
             soft_switches[(A[3:1])] <= A[0];
@@ -429,8 +442,21 @@ module apple2(
     assign PAGE2 = soft_switches[2];
     assign HIRES_MODE = soft_switches[3];
     assign AN = soft_switches[7:4];
+    // DHIRES_MODE = AN[3] (the soft_switches quirk); the real IIe
+    // $C030/$C034 switch decode is documented but not wired.
     assign DHIRES_MODE = AN[3];
     assign RUN_FILL_OK = ~HIRES_MODE | ~DHIRES_MODE;
+    // Per-line "early content" flag: the machine loads content 7 samples early on 80-col lines; both 80-col text
+    // and DHGR ride that grid, so the flag includes both - vga shifts its window 7 samples left when set.
+    assign EARLY_VIDEO = COL80 | (GR2 & DHIRES_MODE);
+
+    // HGR art select = GR2 & ~EARLY_VIDEO & ~TEXT: pure HGR rides the 560 grid; 80-col text, DHGR and quirk-state
+    // HGR (DHIRES=1 via $C05F) ride the 720 early grid. (Per-mode flag matrix verified on the machine.)
+    assign HGR_MODE = GR2 & ~EARLY_VIDEO & ~TEXT_MODE;
+    // Quirk-state HGR (DHIRES=1): content sits at raw samples 7..566, displayed by the [7..566] window with the
+    // early-grid color phase. Mutually exclusive with HGR_MODE (needs ~EARLY_VIDEO).
+    assign HGR80_MODE = GR2 & ~TEXT_MODE & ~COL80 & DHIRES_MODE;
+    // GR2 is an output port, exposed for the vga_controller mode selects.
 
 
     always @(posedge CLK_14M)
