@@ -251,17 +251,17 @@ module apple2_top (
     output        DISK_ACT;
     input  [1:0]  DISK_READY;	// unused in WOZ mode (no track buffer)
 
-    // The WOZ card exposes only D1/D2_ACTIVE (motor incl. 1 s holdover).
-    // The fine-grained Disk II drive signals do not exist on the flux
-    // drives and are tied off (the WOZ wrapper does not use them).
-    assign D1_MOTOR_ON        = 1'b0;
-    assign D2_MOTOR_ON        = 1'b0;
-    assign D1_IO_ACTIVE       = 1'b0;
-    assign D2_IO_ACTIVE       = 1'b0;
-    assign D1_STEP_ACTIVE     = 1'b0;
-    assign D2_STEP_ACTIVE     = 1'b0;
-    assign D1_TRACK_ZERO_STEP = 1'b0;
-    assign D2_TRACK_ZERO_STEP = 1'b0;
+    // WOZ drive sound taps: one-cycle pulses from the flux drives
+    // (same 14 MHz domain, no CDC); motor taps mirror the nib-era
+    // D*_MOTOR_ON semantics the sound engine was tuned with.
+    assign D1_MOTOR_ON        = w_d1_motor;
+    assign D2_MOTOR_ON        = w_d2_motor;
+    assign D1_IO_ACTIVE       = w_d1_io;
+    assign D2_IO_ACTIVE       = w_d2_io;
+    assign D1_STEP_ACTIVE     = w_d1_step;
+    assign D2_STEP_ACTIVE     = w_d2_step;
+    assign D1_TRACK_ZERO_STEP = w_d1_trk0;
+    assign D2_TRACK_ZERO_STEP = w_d2_trk0;
 
     // HDD control
     output [15:0] HDD_SECTOR;
@@ -696,6 +696,8 @@ module apple2_top (
 
     // WOZ Disk II slot controller (rtl/woz/disk_ii_woz.sv)
     wire clk_14m_disk = CLK_14M & machine_ce & ~cpu_stall;
+    wire w_d1_step, w_d2_step, w_d1_trk0, w_d2_trk0, w_d1_io, w_d2_io;
+    wire w_d1_motor, w_d2_motor;
     disk_ii_woz disk(
         .CLK_14M(clk_14m_disk),
         .RESET(reset),
@@ -709,6 +711,14 @@ module apple2_top (
         .D_OUT(DISK_DO),
         .D1_ACTIVE(D1_ACTIVE),
         .D2_ACTIVE(D2_ACTIVE),
+        .D1_STEP(w_d1_step),
+        .D2_STEP(w_d2_step),
+        .D1_TRACK0(w_d1_trk0),
+        .D2_TRACK0(w_d2_trk0),
+        .D1_IO(w_d1_io),
+        .D2_IO(w_d2_io),
+        .D1_MOTOR_ON(w_d1_motor),
+        .D2_MOTOR_ON(w_d2_motor),
         .D1_WP(D1_WP),
         .D2_WP(D2_WP),
         .SD_LBA0(SD_LBA0),

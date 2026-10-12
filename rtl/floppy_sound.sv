@@ -43,6 +43,10 @@ module floppy_sound #(
 	input  wire       reset,
 	input  wire       enable,
 	input  wire [1:0] gain,
+	// Stereo placement of the drive noise (simulates drive position):
+	// 0=Center (both channels), 1=Left, 2=Right, 3=Drives (d1->L, d2->R;
+	// shared motor hum stays centered).
+	input  wire [1:0] pan,
 	input  wire       drive1_motor,
 	input  wire       drive2_motor,
 	input  wire       drive1_io,
@@ -51,7 +55,8 @@ module floppy_sound #(
 	input  wire       drive2_step,
 	input  wire       drive1_track_zero_step,
 	input  wire       drive2_track_zero_step,
-	output reg  [9:0] sample
+	output reg  [9:0] sample,    // LEFT channel contribution
+	output reg  [9:0] sample_r   // RIGHT channel contribution
 );
 
 localparam integer MOTOR_DIVIDER_BITS = $clog2(MOTOR_NOISE_DIVIDER);
@@ -65,7 +70,6 @@ localparam integer IO_DIVIDER_BITS = $clog2(IO_DECAY_DIVIDER);
 localparam integer IO_RETRIGGER_BITS = $clog2(IO_RETRIGGER_CYCLES + 1);
 
 reg [MOTOR_DIVIDER_BITS-1:0] motor_divider = 0;
-reg [MOTOR_ENVELOPE_DIVIDER_BITS-1:0] motor_envelope_divider = 0;
 reg [MOTOR_TONE_COUNTER_BITS-1:0] motor_tone_counter = 0;
 reg [SPINDLE_COUNTER_BITS-1:0] spindle_counter = 0;
 reg [STEP_DIVIDER_BITS-1:0] step_divider = 0;
@@ -75,7 +79,12 @@ reg [IO_DIVIDER_BITS-1:0] io_divider = 0;
 reg [IO_RETRIGGER_BITS-1:0] drive1_io_cooldown = 0;
 reg [IO_RETRIGGER_BITS-1:0] drive2_io_cooldown = 0;
 reg [12:0] noise_lfsr = 13'h1FFF;
-reg [3:0] motor_envelope = 0;
+// Per-drive motor hum envelopes (drives localize in pan "Drives" mode).
+// The noise LFSR + tone + spindle are SHARED timebases, sampled at
+// different taps per drive - the same decorrelation technique the step
+// ring / stop samples already use (noise_lfsr[4]^[1] vs [5]^[2]).
+reg [1:0][3:0] motor_envelope = '{0, 0};
+reg [1:0][MOTOR_ENVELOPE_DIVIDER_BITS-1:0] motor_envelope_divider = '{0, 0};
 reg [3:0] drive1_step_envelope = 0;
 reg [3:0] drive2_step_envelope = 0;
 reg [2:0] drive1_step_ring = 0;
@@ -90,17 +99,26 @@ reg motor_tone_phase = 0;
 reg spindle_phase = 0;
 reg io_texture_phase = 0;
 
-wire motor_running = drive1_motor | drive2_motor;
-wire motor_audible = motor_running | (motor_envelope != 0);
+wire motor_running = drive1_motor | drive2_motor;   // shared timebase advance
+wire drive1_motor_audible = drive1_motor | (motor_envelope[0] != 0);
+wire drive2_motor_audible = drive2_motor | (motor_envelope[1] != 0);
+wire motor_audible = drive1_motor_audible | drive2_motor_audible;
 wire drive1_io_event = drive1_io && !drive1_io_d;
 wire drive2_io_event = drive2_io && !drive2_io_d;
-wire [8:0] motor_level_product = ({5'd0, motor_envelope} * MOTOR_LEVEL[8:0]) +
-	(spindle_phase ? motor_envelope : 4'd0);
-wire [9:0] motor_sample = motor_audible && noise_lfsr[0] ?
-	((motor_level_product + 9'd15) >> 4) : 10'd0;
-wire [7:0] motor_tone_product = {4'd0, motor_envelope} * MOTOR_TONE_LEVEL[7:0];
-wire [9:0] motor_tone_sample = motor_audible && motor_tone_phase ?
-	((motor_tone_product + 8'd15) >> 4) : 10'd0;
+wire [8:0] drive1_motor_level_product = ({5'd0, motor_envelope[0]} * MOTOR_LEVEL[8:0]) +
+	(spindle_phase ? motor_envelope[0] : 4'd0);
+wire [9:0] drive1_motor_sample = drive1_motor_audible && noise_lfsr[0] ?
+	((drive1_motor_level_product + 9'd15) >> 4) : 10'd0;
+wire [8:0] drive2_motor_level_product = ({5'd0, motor_envelope[1]} * MOTOR_LEVEL[8:0]) +
+	(spindle_phase ? motor_envelope[1] : 4'd0);
+wire [9:0] drive2_motor_sample = drive2_motor_audible && noise_lfsr[1] ?
+	((drive2_motor_level_product + 9'd15) >> 4) : 10'd0;
+wire [7:0] drive1_motor_tone_product = {4'd0, motor_envelope[0]} * MOTOR_TONE_LEVEL[7:0];
+wire [9:0] drive1_motor_tone_sample = drive1_motor_audible && motor_tone_phase ?
+	((drive1_motor_tone_product + 8'd15) >> 4) : 10'd0;
+wire [7:0] drive2_motor_tone_product = {4'd0, motor_envelope[1]} * MOTOR_TONE_LEVEL[7:0];
+wire [9:0] drive2_motor_tone_sample = drive2_motor_audible && motor_tone_phase ?
+	((drive2_motor_tone_product + 8'd15) >> 4) : 10'd0;
 wire drive1_track_zero_active = drive1_stop_envelope != 0;
 wire drive2_track_zero_active = drive2_stop_envelope != 0;
 wire [9:0] drive1_step_sample = !drive1_track_zero_active ?
@@ -117,11 +135,26 @@ wire [9:0] drive2_stop_sample = (noise_lfsr[7] ^ noise_lfsr[4]) ?
 	({7'd0, drive2_stop_envelope} << TRACK_ZERO_LEVEL_SHIFT) : 10'd0;
 wire [9:0] drive1_io_sample = io_texture_phase ? ({7'd0, drive1_io_envelope} << IO_LEVEL_SHIFT) : 10'd0;
 wire [9:0] drive2_io_sample = !io_texture_phase ? ({7'd0, drive2_io_envelope} << IO_LEVEL_SHIFT) : 10'd0;
-wire [10:0] mixed_sample = {1'b0, motor_sample} + {1'b0, motor_tone_sample} +
-	{1'b0, drive1_step_sample} + {1'b0, drive2_step_sample} +
-	{1'b0, drive1_step_ring_sample} + {1'b0, drive2_step_ring_sample} +
-	{1'b0, drive1_stop_sample} + {1'b0, drive2_stop_sample} +
-	{1'b0, drive1_io_sample} + {1'b0, drive2_io_sample};
+// Split the mix for panning: per-drive groups INCLUDING each drive's own
+// motor hum (localizes with the drive). mixed_shared is gone; Center/Left/
+// Right sum both drive groups, Drives routes d1-group -> L, d2-group -> R.
+wire [10:0] mixed_d1 = {1'b0, drive1_motor_sample} + {1'b0, drive1_motor_tone_sample} +
+	{1'b0, drive1_step_sample} + {1'b0, drive1_step_ring_sample} +
+	{1'b0, drive1_stop_sample} + {1'b0, drive1_io_sample};
+wire [10:0] mixed_d2 = {1'b0, drive2_motor_sample} + {1'b0, drive2_motor_tone_sample} +
+	{1'b0, drive2_step_sample} + {1'b0, drive2_step_ring_sample} +
+	{1'b0, drive2_stop_sample} + {1'b0, drive2_io_sample};
+wire [10:0] mixed_all = mixed_d1 + mixed_d2;
+
+// Per-channel pre-gain sums selected by pan.
+wire [10:0] chan_l = (pan == 2'd1) ? mixed_all :   // Left  : everything
+	(pan == 2'd2) ? 11'd0 :                    // Right : nothing here
+	(pan == 2'd3) ? mixed_d1 :                 // Drives: d1 hum+events left
+	mixed_all;                                 // Center
+wire [10:0] chan_r = (pan == 2'd2) ? mixed_all :   // Right : everything
+	(pan == 2'd1) ? 11'd0 :                    // Left  : nothing here
+	(pan == 2'd3) ? mixed_d2 :                 // Drives: d2 hum+events right
+	mixed_all;                                 // Center
 
 always @(posedge clk) begin
 	if(reset || !enable) begin
@@ -136,7 +169,8 @@ always @(posedge clk) begin
 		drive1_io_cooldown <= 0;
 		drive2_io_cooldown <= 0;
 		noise_lfsr <= 13'h1FFF;
-		motor_envelope <= 0;
+		motor_envelope <= '{0, 0};
+		motor_envelope_divider <= '{0, 0};
 		drive1_step_envelope <= 0;
 		drive2_step_envelope <= 0;
 		drive1_step_ring <= 0;
@@ -165,18 +199,32 @@ always @(posedge clk) begin
 			motor_divider <= 0;
 		end
 
-		if((motor_running && motor_envelope != 4'hF) || (!motor_running && motor_envelope != 0)) begin
-			if(motor_envelope_divider == MOTOR_ENVELOPE_DIVIDER - 1) begin
-				motor_envelope_divider <= 0;
-				if(motor_running)
-					motor_envelope <= motor_envelope + 1'd1;
+		// Per-drive hum envelopes (ramp with each drive's own motor).
+		if((drive1_motor && motor_envelope[0] != 4'hF) || (!drive1_motor && motor_envelope[0] != 0)) begin
+			if(motor_envelope_divider[0] == MOTOR_ENVELOPE_DIVIDER - 1) begin
+				motor_envelope_divider[0] <= 0;
+				if(drive1_motor)
+					motor_envelope[0] <= motor_envelope[0] + 1'd1;
 				else
-					motor_envelope <= motor_envelope - 1'd1;
+					motor_envelope[0] <= motor_envelope[0] - 1'd1;
 			end else begin
-				motor_envelope_divider <= motor_envelope_divider + 1'd1;
+				motor_envelope_divider[0] <= motor_envelope_divider[0] + 1'd1;
 			end
 		end else begin
-			motor_envelope_divider <= 0;
+			motor_envelope_divider[0] <= 0;
+		end
+		if((drive2_motor && motor_envelope[1] != 4'hF) || (!drive2_motor && motor_envelope[1] != 0)) begin
+			if(motor_envelope_divider[1] == MOTOR_ENVELOPE_DIVIDER - 1) begin
+				motor_envelope_divider[1] <= 0;
+				if(drive2_motor)
+					motor_envelope[1] <= motor_envelope[1] + 1'd1;
+				else
+					motor_envelope[1] <= motor_envelope[1] - 1'd1;
+			end else begin
+				motor_envelope_divider[1] <= motor_envelope_divider[1] + 1'd1;
+			end
+		end else begin
+			motor_envelope_divider[1] <= 0;
 		end
 
 		if(motor_audible) begin
@@ -274,21 +322,30 @@ always @(posedge clk) begin
 	end
 end
 
-always @(*) begin
+// Same gain ladder as before (1x/2x/4x with early saturation), applied per
+// channel to the panned sums.
+function [9:0] scale_gain(input [10:0] mixed);
+	begin
 	if(!enable || reset)
-		sample = 10'd0;
-	else if(mixed_sample > 11'd1023)
-		sample = 10'h3FF;
-	else if(gain == 2'd2 && mixed_sample > 11'd255)
-		sample = 10'h3FF;
+		scale_gain = 10'd0;
+	else if(mixed > 11'd1023)
+		scale_gain = 10'h3FF;
+	else if(gain == 2'd2 && mixed > 11'd255)
+		scale_gain = 10'h3FF;
 	else if(gain == 2'd2)
-		sample = {mixed_sample[7:0], 2'b00};
-	else if(gain == 2'd1 && mixed_sample > 11'd511)
-		sample = 10'h3FF;
+		scale_gain = {mixed[7:0], 2'b00};
+	else if(gain == 2'd1 && mixed > 11'd511)
+		scale_gain = 10'h3FF;
 	else if(gain == 2'd1)
-		sample = {mixed_sample[8:0], 1'b0};
+		scale_gain = {mixed[8:0], 1'b0};
 	else
-		sample = mixed_sample[9:0];
+		scale_gain = mixed[9:0];
+	end
+endfunction
+
+always @(*) begin
+	sample   = scale_gain(chan_l);
+	sample_r = scale_gain(chan_r);
 end
 
 endmodule

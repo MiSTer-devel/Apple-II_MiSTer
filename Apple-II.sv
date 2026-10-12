@@ -114,8 +114,9 @@ parameter CONF_STR = {
 	"P3o7,Joystick mode,Absolute,Relative;",
 	"P3-;",	
 	"P3o3,Disk LED overlay,Yes,No;",
-	// Disk drive sound: disabled in the WOZ variant (the flux drives expose
-	// no motor/step signals; the floppy_sound instance is tied off below).
+	// Disk drive sound: taps on the WOZ flux drives (step/track-0/IO +
+	// motor); boot default On (2x) via the one-shot write in status_in.
+	"P3o12,Disk drive sound,Off,On (2x),On (4x);",
 	"P3-;",
 	"P4,Virtual keyboard;",
 	"P4-;",
@@ -311,7 +312,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 		virtual_keyboard_enabled_toggle?~status[42]:status[42],
 		virtual_keyboard_transparency_cycle?virtual_keyboard_transparency_req:status[41:40],
 		status[39:35],
-		status[34:33],                                          // bits 33-34 free
+		ss_boot_clear ? 2'd1 : status[34:33],                  // P3o12 Disk drive sound: one-shot boot write = On (2x); HPS-held value passes through afterwards
 		status[32],status[31:28],                                  // P2o0 NTSC Vert. Comb Filter (permanent) state 0 = On (old handling, common to both modes)
 		status[27:26],                                             // OQR Write Protect (drive 1 = bit 26, drive 2 = bit 27)
 		status[25:24],status[23:21],                               // bits 24-25 freed by Video Mode consolidation (passthrough)
@@ -390,9 +391,9 @@ joystick_input joystick_input
 );
 
 wire [9:0] core_audio_l, core_audio_r;
-wire [9:0] floppy_audio;
-wire [10:0] audio_l_sum = {1'b0, core_audio_l} + {1'b0, floppy_audio};
-wire [10:0] audio_r_sum = {1'b0, core_audio_r} + {1'b0, floppy_audio};
+wire [9:0] floppy_audio_l, floppy_audio_r;
+wire [10:0] audio_l_sum = {1'b0, core_audio_l} + {1'b0, floppy_audio_l};
+wire [10:0] audio_r_sum = {1'b0, core_audio_r} + {1'b0, floppy_audio_r};
 wire [9:0] audio_l = audio_l_sum[10] ? 10'h3FF : audio_l_sum[9:0];
 wire [9:0] audio_r = audio_r_sum[10] ? 10'h3FF : audio_r_sum[9:0];
 
@@ -685,25 +686,25 @@ wire [7:0] virtual_font_data;
 wire virtual_font_alternate;
 wire virtual_font_lowercase;
 
-// Floppy drive sound: DISABLED in the WOZ variant (user decision,
-// 2026-09-08) - the flux drives expose no motor/step/track-zero signals.
-// The instance is kept with all motion inputs tied off so it can be
-// re-enabled trivially; it contributes silence.
+// Floppy drive sound: taps from the WOZ flux drives (step/track-0/IO +
+// motor); gain/enable from the P3o12 option, stereo "Drives" pan.
 floppy_sound floppy_sound
 (
 	.clk(clk_sys),
 	.reset(RESET | status[0] | buttons[1] | virtual_keyboard_reset | soft_reset),
-	.enable(1'b0),
-	.gain(2'd0),
-	.drive1_motor(1'b0),
-	.drive2_motor(1'b0),
-	.drive1_io(1'b0),
-	.drive2_io(1'b0),
-	.drive1_step(1'b0),
-	.drive2_step(1'b0),
-	.drive1_track_zero_step(1'b0),
-	.drive2_track_zero_step(1'b0),
-	.sample(floppy_audio)
+	.enable(status[34:33] != 2'd0),
+	.gain(status[34:33]),         // OSD states: 1=2x, 2=4x (1x unreachable from OSD)
+	.pan(2'd3),                   // hardwired "Drives": d1 hum+events left, d2 right
+	.drive1_motor(D1_MOTOR_ON),
+	.drive2_motor(D2_MOTOR_ON),
+	.drive1_io(D1_IO_ACTIVE),
+	.drive2_io(D2_IO_ACTIVE),
+	.drive1_step(D1_STEP_ACTIVE),
+	.drive2_step(D2_STEP_ACTIVE),
+	.drive1_track_zero_step(D1_TRACK_ZERO_STEP),
+	.drive2_track_zero_step(D2_TRACK_ZERO_STEP),
+	.sample(floppy_audio_l),
+	.sample_r(floppy_audio_r)
 );
 
 drive_status_overlay drive_status_overlay

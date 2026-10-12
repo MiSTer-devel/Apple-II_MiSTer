@@ -80,6 +80,10 @@ module flux_drive (
     output wire        DRIVE_READY,     // Drive is ready (motor at speed after spinup)
     output wire [6:0]  TRACK,           // Current track number (head position)
     output wire [8:0]  HEAD_QTRACK,     // Full quarter-track head position (for half-track seeks)
+    // Sound-model event taps (floppy-sound branch): one-cycle pulses, 5.25"
+    // stepper engine only (the 3.5" command path does not emit them).
+    output reg         STEP_EVENT,      // head actually moved (servo or snap)
+    output reg         TRACK0_EVENT,    // head pressed against the track-0 stopper
     output reg         EJECT_REQ,       // Pulses when the Sony eject command removes media
 
     // Track data interface (SD block or BRAM)
@@ -175,6 +179,9 @@ module flux_drive (
 
     // Head position (quarter-track)
     reg [8:0]   head_phase;             // 0-319 for 80 tracks (3.5") or 0-139 for 35 tracks (5.25")
+    reg         step_event_r;           // 1-cycle: head moved (drives STEP_EVENT)
+    reg         track0_event_r;         // 1-cycle: stepping against track-0 stopper
+    reg         trk0_done;              // one thunk per phase-state command
 
     // Disk rotation
     reg [16:0]  bit_position;           // Current bit position within track (0 to bit_count-1)
@@ -617,6 +624,8 @@ module flux_drive (
     assign STEP_DIR_OUT      = step_direction_immediate;
     assign MOTOR_ON_SENSE_OUT = motor_on_sense;
     assign AT_TRACK0_OUT     = at_track0;
+    assign STEP_EVENT        = step_event_r;
+    assign TRACK0_EVENT      = track0_event_r;
 
 `ifdef DEBUG_VERBOSE
     // Debug: trace sense computation for 3.5" drive
@@ -737,6 +746,9 @@ module flux_drive (
 
         if (RESET) begin
             head_phase <= 9'd0;
+            step_event_r <= 1'b0;
+            track0_event_r <= 1'b0;
+            trk0_done <= 1'b0;
             prev_phases_525 <= 4'b0000;
             last_valid_phases <= 4'b0000;
             step_hold_cnt <= 14'd0;
@@ -750,6 +762,8 @@ module flux_drive (
             step_busy_cnt <= 18'd0;
         end else begin
             EJECT_REQ <= 1'b0;
+            step_event_r <= 1'b0;
+            track0_event_r <= 1'b0;
 
             if (step_busy_cnt != 18'd0)
                 step_busy_cnt <= step_busy_cnt - 18'd1;
@@ -996,20 +1010,44 @@ module flux_drive (
                 // held much longer (LR fast slew ~2.9 ms/state, its half-track
                 // protection nudges ~150 us, firmware recal ~19 ms) and behave
                 // exactly as before.
-                if (PHASES != prev_phases_525)
+                if (PHASES != prev_phases_525) begin
                     step_hold_cnt <= 14'd0;
+                    trk0_done     <= 1'b0;   // new state may thunk once
+                end
                 else if (step_hold_cnt < PHASE_DEBOUNCE)
                     step_hold_cnt <= step_hold_cnt + 14'd1;
                 prev_phases_525 <= PHASES;
 
                 if (step_hold_cnt >= PHASE_DEBOUNCE) begin
                     new_phase = {23'd0, head_phase} + phase_change;
-                    if (new_phase < 0)
+                    if (new_phase < 0) begin
+                        if (head_phase != 9'd0) step_event_r <= 1'b1;
+                        // One thunk per phase command that reaches/passes the
+                        // stopper (a real head presses once against it; held
+                        // phases do not re-click every cycle).
+                        if (!trk0_done) begin
+                            trk0_done <= 1'b1;
+                            track0_event_r <= 1'b1;
+                        end
                         head_phase <= 9'd0;
-                    else if (new_phase > max_phase)
+                    end
+                    else if (new_phase > max_phase) begin
+                        if (head_phase != max_phase[8:0]) step_event_r <= 1'b1;
                         head_phase <= max_phase[8:0];
-                    else
+                    end
+                    else begin
+                        if (new_phase[8:0] != head_phase) begin
+                            step_event_r <= 1'b1;
+                            // Landing ON the stopper from an outward step is
+                            // the recal thunk (the detent model never tries
+                            // negative here, so clamp alone would stay mute).
+                            if (new_phase == 0 && phase_change < 0 && !trk0_done) begin
+                                trk0_done <= 1'b1;
+                                track0_event_r <= 1'b1;
+                            end
+                        end
                         head_phase <= new_phase[8:0];
+                    end
                     // Remember the last VALIDLY-HELD (debounced) phase state for
                     // the release snap below. Blips shorter than the debounce
                     // never become a snap target.
@@ -1047,12 +1085,22 @@ module flux_drive (
                         if (snap_diff > 3)  snap_diff = snap_diff - 8;
                         if (snap_diff < -4) snap_diff = snap_diff + 8;
                         new_phase = {23'd0, head_phase} + snap_diff;
-                        if (new_phase < 0)
+                        if (new_phase < 0) begin
+                            if (head_phase != 9'd0) step_event_r <= 1'b1;
+                            if (!trk0_done) begin
+                                trk0_done <= 1'b1;
+                                track0_event_r <= 1'b1;
+                            end
                             head_phase <= 9'd0;
-                        else if (new_phase > max_phase)
+                        end
+                        else if (new_phase > max_phase) begin
+                            if (head_phase != max_phase[8:0]) step_event_r <= 1'b1;
                             head_phase <= max_phase[8:0];
-                        else
+                        end
+                        else begin
+                            if (new_phase[8:0] != head_phase) step_event_r <= 1'b1;
                             head_phase <= new_phase[8:0];
+                        end
                     end
                 end
             end
