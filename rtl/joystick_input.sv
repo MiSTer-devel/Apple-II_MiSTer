@@ -43,9 +43,31 @@ localparam integer RELATIVE_UPDATE_BITS = $clog2(RELATIVE_UPDATE_CYCLES);
 wire [7:0] paddle_value = {~paddle[7], paddle[6:0]};
 wire [15:0] axes = swap_axes ? joystick_analog :
 	{joystick_analog[7:0], joystick_analog[15:8]};
+
+// Paddle path shaping (absolute only; the relative ladder reads `axes` directly): deadzone removes center jitter,
+// and saturating gain brings the ~70% diagonal of a circular-gate thumbstick to full scale for PDL-thresholding games.
+localparam signed [7:0] ANALOG_DEADZONE = 8'sd4;
+localparam signed [5:0] ANALOG_GAIN_NUM = 6'sd22; // gain = NUM/16 (1.375x)
+function automatic signed [8:0] analog_shape;
+	input signed [7:0] v;
+	reg signed [7:0]  dz;
+	reg signed [15:0] scaled;
+	begin
+		if (v > ANALOG_DEADZONE)       dz = v - ANALOG_DEADZONE;
+		else if (v < -ANALOG_DEADZONE) dz = v + ANALOG_DEADZONE;
+		else                           dz = 8'sd0;
+		scaled = (dz * ANALOG_GAIN_NUM) >>> 4;
+		if (scaled > 16'sd127)         analog_shape = 9'sd127;
+		else if (scaled < -16'sd128)   analog_shape = -9'sd128;
+		else                           analog_shape = scaled[8:0];
+	end
+endfunction
+wire signed [8:0] axis_x_shaped = analog_shape($signed(axes[15:8]));
+wire signed [8:0] axis_y_shaped = analog_shape($signed(axes[7:0]));
+
 wire [15:0] absolute_untrimmed = {
-	paddle_as_x ? paddle_value : axes[15:8],
-	paddle_as_y ? paddle_value : axes[7:0]
+	paddle_as_x ? paddle_value : axis_x_shaped[7:0],
+	paddle_as_y ? paddle_value : axis_y_shaped[7:0]
 };
 
 reg signed [7:0] x_center_offset;
