@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Newsdee
 
-// Selects native RGB or v5-decoded composite RGB and matching timing.
+// Selects native RGB or comp-decoded composite RGB and matching timing.
 // All processing runs in the 14.318 MHz machine-video domain.
 
 `default_nettype none
 
-// The composite path uses the v5 decoder; the legacy decoder is not built.
+// The composite path uses the composite decoder; the legacy decoder is removed.
 module video_pipeline
 (
   input  wire        CLK_14M,
@@ -16,10 +16,25 @@ module video_pipeline
   input  wire        VBL,
   // Native RGB controls.
   input  wire        COLOR_LINE,
+  input  wire        TEXT_MODE,   // machine lo-res text mode (T40/T80)
+  input  wire        LO_RES_TEXT, // OSD "Lo-Res Text"=Composite in Color display mode
   input  wire [1:0]  SCREEN_MODE,
   input  wire [1:0]  COLOR_PALETTE,
   input  wire        RUN_FILL_OK,
   input  wire        NTSC_VERTICAL_COMB,  // old-style 2-line comb gate: 1=On(two-line) 0=Off, common to RGB and Color TV
+  // Per-line early-content flag: the machine loads content 7 samples early on
+  // 80-col lines; vga_controller shifts its window 7 samples left when set.
+  input  wire        EARLY_VIDEO,
+  // Regular-HGR select: the X0 window clips HGR content on the right, so HGR
+  // uses the real-machine non-wrapping window + composite tap 13.
+  input  wire        HGR_MODE,
+  // Quirk-state HGR select (early/720 grid): window [32..591] shows the
+  // content full-width with the early-grid color phase (CTV tap idx 3).
+  input  wire        HGR80_MODE,
+  // Machine state flags for the HGR80 quirk select (live selects).
+  input  wire        GR2,
+  input  wire        COL80,
+  input  wire        DHIRES_MODE,
   // Custom palette loader.
   input  wire [24:0] ioctl_addr,
   input  wire [7:0]  ioctl_data,
@@ -33,14 +48,12 @@ module video_pipeline
   // Composite display controls.
   input  wire        use_composite,  // "Display Type" != RGB Monitor (status[4:3] != 0)
   input  wire [1:0]  comp_preset,    // 0=Calibrated 1=Eyeballed 2=Punchy 3=Muted
-  input  wire        comp_hfix,      // retained for config compatibility; correction is always active
-  input  wire [4:0]  comp_hue_adj,   // debug: composite hue adjust 0-31 (added to base hue)
-  // P6 state indices add fine offsets to the selected v5 preset.
+  input  wire [4:0]  comp_hue_adj,   // OSD "NTSC Hue" (2 bits x step 3 -> 0..9, added to base hue)
+  // P6 state indices add fine offsets to the selected preset.
   // Testbenches must drive these inputs explicitly.
-  input  wire [3:0]  v5_hue_st,      // {0,-16,-12,-8,-4,+4,+8,+12,+16} (state 0 = no offset)
-  input  wire [1:0]  v5_bright_st,   // {0,-16,+16,+32} (state 0 = no offset; grid = contrast's, 2026-09-27)
-  input  wire [2:0]  v5_sat_st,      // {0,-16,-8,+8,+16,+32} (state 0 = no offset)
-  input  wire [1:0]  v5_contrast_st, // {0,-16,+16,+32} (state 0 = no offset)
+  input  wire [1:0]  comp_bright_st,   // {0,-16,+16,+32} (state 0 = no offset)
+  input  wire [1:0]  comp_sat_st,      // {0,-16,+16,+32} (state 0 = no offset)
+  input  wire [1:0]  comp_contrast_st, // {0,-16,+16,+32} (state 0 = no offset)
   // Selected RGB and timing.
   output wire [7:0]  R,
   output wire [7:0]  G,
@@ -51,16 +64,30 @@ module video_pipeline
   output wire        VBL_O
 );
 
+  // Mono display modes force B&W decode on both paths, like the real color-killer circuit.
+  wire color_line_k = COLOR_LINE & (SCREEN_MODE == 2'b00);
+
+  // "Lo-Res Text"=Composite: lo-res text decodes B&W on the composite path
+  // (color_line=0 -> no chroma, like the real color-killer on a Color TV).
+  wire color_line_comp = color_line_k & ~(LO_RES_TEXT & TEXT_MODE);
+
   wire [7:0] r_vga, g_vga, b_vga;
   wire       hs_vga, vs_vga, hbl_vga, vbl_vga;
   vga_controller tv (
     .CLK_14M(CLK_14M),
     .VIDEO(VIDEO),
-    .COLOR_LINE(COLOR_LINE),
+    .COLOR_LINE(color_line_k),
     .SCREEN_MODE(SCREEN_MODE),
     .COLOR_PALETTE(COLOR_PALETTE),
     .RUN_FILL_OK(RUN_FILL_OK),
     .NTSC_VERTICAL_COMB(NTSC_VERTICAL_COMB),  // old-style gate: On->1 Off->0 (common to both modes)
+    .EARLY_VIDEO(EARLY_VIDEO),
+    .HGR_MODE(HGR_MODE),
+    .HGR80_MODE(HGR80_MODE),
+    .GR2(GR2),
+    .COL80(COL80),
+    .DHIRES_MODE(DHIRES_MODE),
+    .TEXT_MODE(TEXT_MODE),
     .HBL(HBL),
     .VBL(VBL),
     .VGA_HS(hs_vga),
@@ -119,7 +146,7 @@ module video_pipeline
   reg  [3:0] p_smear, p_sharpness, p_luma_delay;
   reg        p_agc;
   // Preset bases before P6 offsets.
-  reg  [7:0] v5a_sat, v5a_hue, v5a_bright, v5a_contrast;
+  reg  [7:0] comp_sat, comp_hue, comp_bright, comp_contrast;
   // Clamp signed intermediate sums to decoder port ranges.
   function signed [7:0] clamp_s8(input signed [15:0] v);
     if      (v >  16'sd127)  clamp_s8 = 8'sh81;   // -127
@@ -132,23 +159,9 @@ module video_pipeline
     else                     clamp_u8 = v[7:0];
   endfunction
   // P6 state 0 preserves the preset; other states apply fine offsets.
-  logic signed [15:0] k_hue_c;
-  always @(*) begin
-    case (v5_hue_st)
-      4'd0: k_hue_c = 16'sd0;
-      4'd1: k_hue_c = -16'sd16;
-      4'd2: k_hue_c = -16'sd12;
-      4'd3: k_hue_c = -16'sd8;
-      4'd4: k_hue_c = -16'sd4;
-      4'd5: k_hue_c = 16'sd4;
-      4'd6: k_hue_c = 16'sd8;
-      4'd7: k_hue_c = 16'sd12;
-      default: k_hue_c = 16'sd16;   // 4'd8..15 (OSD list ends at 8)
-    endcase
-  end
   logic signed [15:0] k_bright_c;
   always @(*) begin
-    case (v5_bright_st)
+    case (comp_bright_st)
       2'd0: k_bright_c = 16'sd0;
       2'd1: k_bright_c = -16'sd16;
       2'd2: k_bright_c = 16'sd16;
@@ -157,18 +170,16 @@ module video_pipeline
   end
   logic signed [15:0] k_sat_off_c;
   always @(*) begin
-    case (v5_sat_st)
-      3'd0: k_sat_off_c = 16'sd0;
-      3'd1: k_sat_off_c = -16'sd16;
-      3'd2: k_sat_off_c = -16'sd8;
-      3'd3: k_sat_off_c = 16'sd8;
-      3'd4: k_sat_off_c = 16'sd16;
-      default: k_sat_off_c = 16'sd32;   // states 5..7 (OSD list ends at 5): +32
+    case (comp_sat_st)
+      2'd0: k_sat_off_c = 16'sd0;
+      2'd1: k_sat_off_c = -16'sd16;
+      2'd2: k_sat_off_c = 16'sd16;
+      default: k_sat_off_c = 16'sd32;   // 2'd3
     endcase
   end
   logic signed [15:0] k_contrast_off_c;
   always @(*) begin
-    case (v5_contrast_st)
+    case (comp_contrast_st)
       2'd0: k_contrast_off_c = 16'sd0;
       2'd1: k_contrast_off_c = -16'sd16;
       2'd2: k_contrast_off_c = 16'sd16;
@@ -190,30 +201,30 @@ module video_pipeline
       2'd3: begin p_sat=8'd80;  p_hue=8'd112;  p_bright=8'hFB; p_contrast=8'd190; p_smear=4'd3; p_sharpness=4'd15; end   // Muted (Eyeballed, sat=80; smoothing+sharpness on)
       default:   begin end
     endcase
-    // Hardware-tuned v5 preset bases.
-    v5a_sat        = 8'd80;
-    v5a_hue        = 8'shFC;   // 8-12 = -4
-    v5a_bright     = 8'd16;    // 0+16
-    v5a_contrast   = 8'd144;   // 128+16
+    // Hardware-tuned preset bases.
+    comp_sat        = 8'd80;
+    comp_hue        = 8'shFC;   // 8-12 = -4
+    comp_bright     = 8'd16;    // 0+16
+    comp_contrast   = 8'd144;   // 128+16
     case (comp_preset)
-      2'd1: begin v5a_sat=8'd115; v5a_hue=8'd13;  v5a_bright=8'shE0; v5a_contrast=8'd144; end  // Eyeballed (r1: H-8 B-16 S+32 C+32; r2: H0 B-16 S+32 C-16)
-      2'd2: begin v5a_sat=8'd76;  v5a_hue=8'shF7;  v5a_bright=8'd0;   v5a_contrast=8'd144; end  // Punchy (r1: H-16 B+16 S-8 C+32; r2: H-16 B-16 S-16 C-16)
-      2'd3: begin v5a_sat=8'd32;  v5a_hue=8'shF5; v5a_bright=8'd0;   v5a_contrast=8'd160; end  // Muted (H-16 B+0 S-16 C+32)
+      2'd1: begin comp_sat=8'd115; comp_hue=8'd13;  comp_bright=8'shE0; comp_contrast=8'd144; end  // Eyeballed
+      2'd2: begin comp_sat=8'd76;  comp_hue=8'shF7;  comp_bright=8'd0;   comp_contrast=8'd144; end  // Punchy
+      2'd3: begin comp_sat=8'd32;  comp_hue=8'shF5; comp_bright=8'd0;   comp_contrast=8'd160; end  // Muted
       default:   begin end
     endcase
     // Hue wraps; brightness, saturation, and contrast clamp to port ranges.
-    p_hue      = v5a_hue + k_hue_c[7:0];
-    p_bright   = clamp_s8($signed(v5a_bright) + k_bright_c);
-    p_sat      = clamp_u8($signed({8'd0, v5a_sat}) + k_sat_off_c);   // zero-extend: values >= 128 sign-extend negative as 8-bit signed
-    p_contrast = clamp_u8($signed({8'd0, v5a_contrast}) + k_contrast_off_c); // zero-extend: same trap (177 = -79 as 8-bit signed)
+    p_hue      = comp_hue;
+    p_bright   = clamp_s8($signed(comp_bright) + k_bright_c);
+    p_sat      = clamp_u8($signed({8'd0, comp_sat}) + k_sat_off_c);   // zero-extend: values >= 128 sign-extend negative as 8-bit signed
+    p_contrast = clamp_u8($signed({8'd0, comp_contrast}) + k_contrast_off_c); // zero-extend: same trap (177 = -79 as 8-bit signed)
   end
 
-  // Encode raw video to NTSC and decode it through v5.
+  // Encode raw video to NTSC and decode it through the composite decoder.
   wire [7:0]  r_comp, g_comp, b_comp;
   wire        hs_c_out, vs_c_out, hb_c_out, vb_c_out;
   // Test-only sample outputs remain unconnected in the core.
   /* verilator lint_off PINMISSING */
-  apple_composite #(.V5_AXIS(V5_AXIS), .V5_Q_NEG(V5_Q_NEG)) u_comp (
+  apple_composite #(.COMP_AXIS(COMP_AXIS), .COMP_Q_NEG(COMP_Q_NEG)) u_comp (
     .clk(CLK_14M),
     .reset(reset),
     .ce(machine_ce),
@@ -223,7 +234,7 @@ module video_pipeline
     .vs(vs_c),
     .hb(HBL),
     .vb(VBL),
-    .color_line(COLOR_LINE),
+    .color_line(color_line_comp),
     .sat(p_sat),
     .hue(p_hue + comp_hue_adj),
     .bright(p_bright),
@@ -246,17 +257,20 @@ module video_pipeline
   );
   /* verilator lint_on PINMISSING */
 
-  // Delay composite timing, not RGB, to align the decoded active window:
-  // raw encoder hs_c + (HSHIFT_V5 + 1) stages = 136 = native vga HS.
-  parameter HSHIFT_V5     = 5;  // align the composite and native left edges
-  // Hardware-tested v5 color orientation.
-  parameter V5_AXIS  = 0;
-  parameter V5_Q_NEG = 0;
-  localparam HSHIFT_MAX  = HSHIFT_V5;
+  // Composite sync delay D = LAT + HSHIFT_COMP (+HSHIFT_SMOOTH) places the
+  // decoded content at the same window-relative position as native (the
+  // right-edge fill and in-window centering both require D = 25).
+  parameter HSHIFT_COMP     = 14;
+  // Hardware-tested color orientation.
+  parameter COMP_AXIS  = 0;
+  parameter COMP_Q_NEG = 0;
+  localparam HSHIFT_MAX  = HSHIFT_COMP;
   // Shift the composite HS/HBL window by the same amount when smoothing is on so the picture stays centered.
   localparam [3:0] HSHIFT_SMOOTH = 4'd7;
   localparam HSHIFT_PIPE = HSHIFT_MAX + HSHIFT_SMOOTH + 3;  // pipe must reach the max index (+3 margin)
-  // NOTE: HSHIFT_V5 + HSHIFT_SMOOTH must stay <= 15 (4-bit index space).
+  // NOTE: HSHIFT_COMP + HSHIFT_SMOOTH must stay <= 31 (5-bit index space;
+  // 14 + 7 = 21). The +3 margin keeps the shift register one step longer
+  // than the largest selectable tap.
   reg  [HSHIFT_PIPE:0] hb_c_pipe, hs_c_pipe;  // stages 0..HSHIFT_PIPE
   always @(posedge CLK_14M) begin
     if (machine_ce) begin
@@ -264,8 +278,12 @@ module video_pipeline
       hs_c_pipe <= {hs_c_pipe[HSHIFT_PIPE-1:0], hs_c};  // raw sync, not hs_c_out
     end
   end
-  wire [3:0] hshift_idx = HSHIFT_V5[3:0]
-                        + ((p_smear != 4'd0) ? HSHIFT_SMOOTH : 4'd0);
+  // HGR80 (quirk state) uses the tap that aligns its CTV content to x0
+  // (base idx 13, +7 with smear, within HSHIFT_PIPE); all other modes
+  // keep the unconditional -8 (idx 6) reference alignment.
+  wire [4:0] hshift_idx = HSHIFT_COMP[4:0]
+                        + ((p_smear != 4'd0) ? {1'b0, HSHIFT_SMOOTH} : 5'd0)
+                        - (HGR80_MODE ? 5'd1 : 5'd8);
   wire       hb_c_s = hb_c_pipe[hshift_idx];
   wire       hs_c_s = hs_c_pipe[hshift_idx];
 
@@ -282,10 +300,16 @@ module video_pipeline
       default: begin mono_k = K_BW; mono_w = W_BW; end
     endcase
   end
-  wire mono_on = g_comp >= 8'd128;  // decoded gray: black..white
-  wire [7:0] r_mono = mono_on ? mono_w[23:16] : mono_k[23:16];
-  wire [7:0] g_mono = mono_on ? mono_w[15:8]  : mono_k[15:8];
-  wire [7:0] b_mono = mono_on ? mono_w[7:0]   : mono_k[7:0];
+  wire [7:0]  r_diff = mono_w[23:16] - mono_k[23:16];
+  wire [7:0]  g_diff = mono_w[15:8]  - mono_k[15:8];
+  wire [7:0]  b_diff = mono_w[7:0]   - mono_k[7:0];
+  wire [15:0] r_span = r_diff * g_comp;
+  wire [15:0] g_span = g_diff * g_comp;
+  wire [15:0] b_span = b_diff * g_comp;
+  // k + (w-k)*g/256 <= w <= 255: 8-bit target cannot overflow.
+  wire [7:0] r_mono = mono_k[23:16] + r_span[15:8];
+  wire [7:0] g_mono = mono_k[15:8]  + g_span[15:8];
+  wire [7:0] b_mono = mono_k[7:0]   + b_span[15:8];
 
   // Select RGB and its matching timing as one path.
   assign R     = use_composite ? (SCREEN_MODE != 2'b00 ? r_mono : r_comp) : r_vga;

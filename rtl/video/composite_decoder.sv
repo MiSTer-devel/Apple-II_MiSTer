@@ -118,7 +118,7 @@ localparam [10:0] CLAMP_GATE  = 11'(tenths_us(99));   // Apple: black measured f
 // Apple II line geometry, hcnt samples (hcnt 0 = 2 samples after the sync
 // edge): 912-sample line; post-sync HBL 0..219, active 220..779, pre-sync 780..911.
 localparam [10:0] HB_END      = 11'(tenths_us(154));   // Apple: 220 (HBL end, post-sync)
-localparam [HCNT_W-1:0] FRONT_PORCH = HCNT_W'(124);    // Apple: 132; 124 extends the active window 8 samples right so the DE tail decodes the next-line HBL white. Lock is sync-edge based and unaffected; HB_END untouched.
+localparam [HCNT_W-1:0] FRONT_PORCH = HCNT_W'(132);    // Apple: 132; (124 widened the DE 8 right and decoded the porch as a purple right-edge seam)
 
 localparam signed [23:0] SLICE = 24'sd209715;
 localparam signed [23:0] TIP_DECAY = 24'sd2;
@@ -136,7 +136,7 @@ localparam [31:0]        DIV_NUM     = 32'h49F700A6;
 
 function automatic signed [15:0] sat16(input signed [17:0] v);
 	if      (v >  18'sd32767) sat16 =  16'sd32767;
-	else if (v < -18'sd32768) sat16 = -16'sd32768;
+	else if (v < -18'sd32768) sat16 = 16'sh8000;
 	else                      sat16 =  v[15:0];
 endfunction
 
@@ -208,7 +208,7 @@ end else if (ce) begin
 	if (clamp_fin)       black <= black_acc[27:CLAMP_SH];
 
 	if      (c_shf >  25'sd32767) c16 <=  16'sd32767;
-	else if (c_shf < -25'sd32768) c16 <= -16'sd32768;
+	else if (c_shf < -25'sd32768) c16 <= 16'sh8000;
 	else                          c16 <=  c_shf[15:0];
 end
 
@@ -248,6 +248,8 @@ end
 
 logic [HALFC-1:0][15:0] nd, ndc;
 logic signed [15:0] yc, cc, yc_d, y_lp;
+// Latency-matched raw luma for color_line=0 bypass: c16 -> yc is 1 reg, yc -> y_lp is 1 more.
+logic signed [15:0] c16_d1, c16_d2;
 
 wire signed [15:0] c_del  = $signed(nd[HALFC-1]);
 wire signed [16:0] v_sum  = c16 + prev;
@@ -288,6 +290,8 @@ always_ff @(posedge clk) if (reset) begin
 	cc <= 16'sd0;
 	yc_d <= 16'sd0;
 	y_lp <= 16'sd0;
+	c16_d1 <= 16'sd0;
+	c16_d2 <= 16'sd0;
 end else if (ce) begin
 	nd    <= {nd[HALFC-2:0], c16};
 	ndc   <= {ndc[HALFC-2:0], cs};
@@ -297,7 +301,10 @@ end else if (ce) begin
 	yc    <= n_sum[16:1];
 	cc    <= n_dif[16:1];
 	yc_d  <= yc;
-	y_lp  <= y_sum[16:1];
+	c16_d1 <= c16;
+	c16_d2 <= c16_d1;
+	// A B&W set has no chroma notch; the dots are the picture.
+	y_lp  <= color_line ? y_sum[16:1] : c16_d2;
 end
 
 logic [23:0] phase;
@@ -615,7 +622,7 @@ always_ff @(posedge clk) if (reset) begin
 end else if (ce) begin
 	pkbuf <= {pkbuf[2*PK_SPAN-2:0], y_bw};
 	if      (pk_sum >  19'sd32767) y_pk <=  16'sd32767;
-	else if (pk_sum < -19'sd32768) y_pk <= -16'sd32768;
+	else if (pk_sum < -19'sd32768) y_pk <= 16'sh8000;
 	else                           y_pk <=  pk_sum[15:0];
 end
 
@@ -699,7 +706,9 @@ function automatic [7:0] clamp8(input signed [27:0] v);
 endfunction
 /* verilator lint_on UNUSEDSIGNAL */
 
-localparam LAT = 7 + ALIGN_DLY;
+// Sync pipeline depth: 8 + ALIGN_DLY (11); with HSHIFT_COMP (video_pipeline) the total delay places the
+// composite content at the same in-window position as native. AGC taps below track LAT symbolically.
+localparam LAT = 8 + ALIGN_DLY;
 logic [LAT-1:0] hs_p, vs_p, hb_p, vb_p;
 
 logic [4:0] act_cnt;

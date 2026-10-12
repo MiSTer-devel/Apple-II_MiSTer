@@ -18,8 +18,8 @@ module apple_composite #(
   parameter BURST_LEN   = 64,
   // Colour-frame knobs: AXIS=0 matches the legacy decoder's frame; Q_NEG=0
   // keeps the natural Q sign (1 mirrors the frame across the I axis).
-  parameter V5_AXIS  = 0,
-  parameter V5_Q_NEG = 0
+  parameter COMP_AXIS  = 0,
+  parameter COMP_Q_NEG = 0
 )(
   input  wire        clk,        // 14.318 MHz, one composite sample per edge
   input  wire        reset,      // decoder reset (machine reset, clk domain)
@@ -100,8 +100,10 @@ module apple_composite #(
   // Keep burst and black-clamp references active during vertical sync lines.
   logic signed [23:0] comp;
   // Front porch = the machine samples before the next HS rising edge
-  // needs adjustment since composite adds more delay
-  wire in_fporch = (hcnt >= 10'd714) && (hcnt < 10'd841);
+  // needs adjustment since composite adds more delay.
+  // Start at 713 (not 714): the first machine-HBL sample must carry video too, else a 1-sample blank dip decodes
+  // to a 2px black notch near the right edge on 80-col full-width content.
+  wire in_fporch = (hcnt >= 10'd713) && (hcnt < 10'd841);
 
   assign comp = hs
                      ? V_SYNC
@@ -111,18 +113,18 @@ module apple_composite #(
                      ? V_BLANK
                     : (video_sample ? V_WHITE : V_BLACK);
 
-  wire signed [15:0] v5_brightness = 16'(signed'(bright) * 32'sd32);
-  wire [33:0] v5_contrast_prod = 34'(contrast) * 34'd2857;
+  wire signed [15:0] comp_brightness = 16'(signed'(bright) * 32'sd32);
+  wire [33:0] comp_contrast_prod = 34'(contrast) * 34'd2857;
   // *2857/128: contrast is a Q16 volts-to-white gain with 2857 = unity
   // (NTSC 0.714 V white), so the neutral knob 128 must land exactly on 2857.
-  wire [15:0] v5_contrast      = v5_contrast_prod[24:7];   // *2857/128
+  wire [15:0] comp_contrast      = comp_contrast_prod[19:7];   // *2857/128 (prod max 255*2857=728535 < 2^20; [19:7] is exact)
 
   assign comp_sample = comp;
 
-  // v5a decoder, SPC=4.
-  wire [7:0] r_v5, g_v5, b_v5;
-  wire       ce_v5, hs_v5, vs_v5, hb_v5, vb_v5;
-  composite_decoder #(.SPC(4), .AXIS(V5_AXIS), .Q_NEG(V5_Q_NEG)) u_dec_v5a (
+  // composite decoder, SPC=4.
+  wire [7:0] r_comp, g_comp, b_comp;
+  wire       ce_comp, hs_comp, vs_comp, hb_comp, vb_comp;
+  composite_decoder #(.SPC(4), .AXIS(COMP_AXIS), .Q_NEG(COMP_Q_NEG)) u_dec (
     .clk          (clk),
     .reset        (reset),
     .ce           (ce),
@@ -134,30 +136,30 @@ module apple_composite #(
     .chroma_trail (smear),
     .sharpness    (sharpness),
     .black_stretch(black_stretch),
-    .brightness   (v5_brightness),
-    .contrast     (v5_contrast),
+    .brightness   (comp_brightness),
+    .contrast     (comp_contrast),
     .i_mirror     (i_mirror),
     .color_line   (color_line),
     .comb_mode    (comb_mode),
-    .ce_out       (ce_v5),
+    .ce_out       (ce_comp),
     .pix_out      (),
-    .hs_out       (hs_v5),
-    .vs_out       (vs_v5),
-    .hb_out       (hb_v5),
-    .vb_out       (vb_v5),
-    .r_out        (r_v5),
-    .g_out        (g_v5),
-    .b_out        (b_v5)
+    .hs_out       (hs_comp),
+    .vs_out       (vs_comp),
+    .hb_out       (hb_comp),
+    .vb_out       (vb_comp),
+    .r_out        (r_comp),
+    .g_out        (g_comp),
+    .b_out        (b_comp)
   );
 
-  assign ce_out = ce_v5;
-  assign hs_out = hs_v5;
-  assign vs_out = vs_v5;
-  assign hb_out = hb_v5;
-  assign vb_out = vb_v5;
-  assign r = r_v5;
-  assign g = g_v5;
-  assign b = b_v5;
+  assign ce_out = ce_comp;
+  assign hs_out = hs_comp;
+  assign vs_out = vs_comp;
+  assign hb_out = hb_comp;
+  assign vb_out = vb_comp;
+  assign r = r_comp;
+  assign g = g_comp;
+  assign b = b_comp;
 
 endmodule
 

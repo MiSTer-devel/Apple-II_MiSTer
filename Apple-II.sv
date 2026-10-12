@@ -66,16 +66,7 @@ parameter CONF_STR = {
 	"OQR,Write Protect,None,Drive 1,Drive 2,Drive 1 & 2;",
 	"-;",
 	"S1,HDV;",
-	"-;",
-	"P0O3,Display Type,RGB Monitor,Color TV;",
-	"D0P0OOP,RGB palette,NTSC //e,IIgs,AppleWin,Custom;",
-	"d0P0O12,Color TV Preset,Calibrated,Eyeballed,Punchy,Muted;",
-	// NTSC fine-tune knobs (for Color TV mode): these are offsets from presets	"P0O[67:64],NTSC Hue,0,-16,-12,-8,-4,+4,+8,+12,+16;",
-	"P0oKL,NTSC Bright,0,-16,+16,+32;",
-	"P0O[71:69],NTSC Sat,0,-16,-8,+8,+16,+32;",
-	"P0o12,NTSC Contrast,0,-16,+16,+32;",
 	"P0-;",
-	"-;",
 	"P1,System & BIOS;",
 	"P1-;",
 	"P1O5,CPU,65C02,6502;",
@@ -89,13 +80,23 @@ parameter CONF_STR = {
 	"P2-;",
 	"P2O78,Stereo mix,none,25%,50%,100%;",
 	"P2-;",
-	"P2OJK,Display Mode,Color,B&W,Green,Amber;",
-	"P2FC2,A2P,Custom RGB Palette;",
+	"P2OJK,Display,Color,B&W,Green,Amber;",
+	// Video Mode (P2o[54:52]): consolidated 8-mode video option replacing
+	// Display Type + Color TV Preset + RGB palette; decode in video_mode_decode.v.
+	"P2o[54:52],Video Mode,NTSC //e TV,NTSC //e RGB,AppleWin TV,AppleWin RGB,IIgs RGB,Faded Tube TV,Sharp Muted TV,Custom RGB;",
+	// d0 prefix = line hidden unless menumask bit 0 is set; the core sets
+	// bit 0 only in Custom RGB mode (video_mode == 7).
+	"d0P2FC2,A2P,Custom palette;",
 	"P2-;",
 	"P2OG,Pixel Clock,Double,Normal;",
 	"P2OL,Lo-Res Text,Clean,Composite;",
-	"P2oPT,Comp Hue Adj,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15;",
-	"P2oM,Comp right-edge fix,Off,On;",
+	// NTSC fine-tune: only TV Saturation is exposed; Hue/Bright/Contrast are
+	// commented out below for easy restore (their bits then read 0 = no
+	// offset in video_pipeline). Comb Filter stays permanent at bit 32.
+	// "P2O[125:124],NTSC Hue,0,3,6,9;",
+	// "P2O[123:122],NTSC Bright,0,-16,+16,+32;",
+	"P2O[127:126],TV Saturation,0,-16,+16,+32;",
+	// "P2O[121:120],NTSC Contrast,0,-16,+16,+32;",
 	"P2o0,NTSC Vert. Comb Filter,On,Off;",
 	"P2-;",
 	"P2O9B,Scandoubler Fx,None,HQ2x,CRT 25%,CRT 50%,CRT 75%;", 
@@ -113,8 +114,9 @@ parameter CONF_STR = {
 	"P3o7,Joystick mode,Absolute,Relative;",
 	"P3-;",	
 	"P3o3,Disk LED overlay,Yes,No;",
-	// Disk drive sound: disabled in the WOZ variant (the flux drives expose
-	// no motor/step signals; the floppy_sound instance is tied off below).
+	// Disk drive sound: taps on the WOZ flux drives (step/track-0/IO +
+	// motor); boot default On (2x) via the one-shot write in status_in.
+	"P3o12,Disk drive sound,Off,On (2x),On (4x);",
 	"P3-;",
 	"P4,Virtual keyboard;",
 	"P4-;",
@@ -297,24 +299,26 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.status(status),
 	// Bit 45 ("Savestates to SDCard"): live user toggle, On by default; the
 	// one-shot boot write sets it high, then the HPS-held value passes through.
-	.status_in({status[127:68],                                          // P0O[71:69] NTSC Sat (68 free: Sharpness folded into presets); 48/49 = savestate F6/F5 action bits
-		status[67:64],                                          // P0O[67:64] NTSC Hue  state 0 = 0 offset
-		status[63:57],                                          // bits 62-63 free (Black Stretch option removed); P2oPT Comp Hue Adj [61:57]
-		status[56:55],                                          // bits 55-56 free (Comb reverted to P2o0 / bit 32, both modes)
-		status[54:52],                                          // P2oM Comp right-edge fix [54]; P0oKL NTSC Bright [53:52] state 0 = 0 offset
-		status[51:49],                                          // bits 49-51 now free (Sat moved to P0O[71:69])
+	.status_in({status[127:120],                                        // top block: only Sat [127:126] has an OSD option now (knob bits read 0 = no offset)
+		status[119:80],                                          // bits 80-119 free
+		status[79:65],                                          // bits 65-79 free
+		status[64],                                              // bit 64 free
+		status[63:57],                                          // bits 57-63 free
+		status[56:55],                                          // bits 55-56 free
+		palette_toggle?mode_req:status[54:52],              // bits 52-54 = Video Mode (P2o[54:52]); hotkey cycle mux
+		status[51:49],                                          // bits 49-51 free (48/49 = savestate F6/F5 action bits)
 		status[48],                                              // bits 48/49 = savestate_ui osd_save/osd_restore (OSD F6/F5 actions)
 		status[47:46],status[45] | ss_boot_clear,status[44:43],
 		virtual_keyboard_enabled_toggle?~status[42]:status[42],
 		virtual_keyboard_transparency_cycle?virtual_keyboard_transparency_req:status[41:40],
 		status[39:35],
-		status[34:33],                                          // P0o12 NTSC Contrast state 0 = 0 offset
-		status[32],status[31:28],                                  // P2o0 NTSC Vert. Comb Filter  state 0 = On (old handling, common to both modes)
+		ss_boot_clear ? 2'd1 : status[34:33],                  // P3o12 Disk drive sound: one-shot boot write = On (2x); HPS-held value passes through afterwards
+		status[32],status[31:28],                                  // P2o0 NTSC Vert. Comb Filter (permanent) state 0 = On (old handling, common to both modes)
 		status[27:26],                                             // OQR Write Protect (drive 1 = bit 26, drive 2 = bit 27)
-		palette_toggle?palette_req:status[25:24],status[23:21],
+		status[25:24],status[23:21],                               // bits 24-25 freed by Video Mode consolidation (passthrough)
 		video_toggle?screen_mode_req:status[20:19],status[18:0]}),
 	.status_set(video_toggle || palette_toggle || virtual_keyboard_transparency_cycle || virtual_keyboard_enabled_toggle || ss_boot_clear),
-	.status_menumask({ss_menumask[15:1], display_type}),  // bit0: "Color TV Preset" enabled in composite mode
+	.status_menumask({ss_menumask[15:1], (video_mode == 3'd7)}),  // bit0: "Custom palette" line shown only in Custom RGB mode
 	.info_req(ss_info_req),
 	.info(ss_info),
 	.forced_scandoubler(forced_scandoubler),
@@ -387,9 +391,9 @@ joystick_input joystick_input
 );
 
 wire [9:0] core_audio_l, core_audio_r;
-wire [9:0] floppy_audio;
-wire [10:0] audio_l_sum = {1'b0, core_audio_l} + {1'b0, floppy_audio};
-wire [10:0] audio_r_sum = {1'b0, core_audio_r} + {1'b0, floppy_audio};
+wire [9:0] floppy_audio_l, floppy_audio_r;
+wire [10:0] audio_l_sum = {1'b0, core_audio_l} + {1'b0, floppy_audio_l};
+wire [10:0] audio_r_sum = {1'b0, core_audio_r} + {1'b0, floppy_audio_r};
 wire [9:0] audio_l = audio_l_sum[10] ? 10'h3FF : audio_l_sum[9:0];
 wire [9:0] audio_r = audio_r_sum[10] ? 10'h3FF : audio_r_sum[9:0];
 
@@ -413,7 +417,7 @@ reg       text_color = 0;
 reg       video_toggle = 0;
 reg       palette_toggle = 0;
 wire [1:0] screen_mode;
-wire [1:0] palette_mode;
+wire [2:0] video_mode;
 wire osd_pause = status[44] && OSD_STATUS;
 // Start (gamepad bus bit 6) shows/hides the virtual keyboard. This is handled
 // by the VK controller's own visibility function: bit 6 down-edge drives
@@ -476,14 +480,24 @@ always @(posedge clk_sys) begin
 end
 wire [1:0] virtual_keyboard_transparency_req = virtual_keyboard_visibility + 1'd1;
 reg [1:0] screen_mode_req;
-reg [1:0] palette_req;
+reg [2:0] mode_req;
 
 assign screen_mode = status[20:19];
-assign palette_mode = status[25:24];
 
-// "Display Type" (OSD P0O3, status[3]): 0 = RGB Monitor, 1 = Color TV
-// (composite path); status[4] is unused.
-wire display_type = status[3];
+// "Video Mode" (OSD P2o[54:52]): the consolidated 8-mode video option.
+// Replaces Display Type (P0O3, status[3]), Color TV Preset (d0P0O12,
+// status[2:1]) and RGB palette (D0P0OOP, status[25:24]).
+assign video_mode = status[54:52];
+wire        display_type;
+wire [1:0] color_palette;
+wire [1:0] comp_preset;
+video_mode_decode video_mode_decode (
+	.video_mode(video_mode),
+	.display_type(display_type),
+	.color_palette(color_palette),
+	.comp_preset(comp_preset)
+);
+wire use_composite;
 assign use_composite = display_type;
 
 always @(posedge clk_sys) begin
@@ -498,10 +512,10 @@ always @(posedge clk_sys) begin
 		screen_mode_req = screen_mode + 1'b1;
 	end 
 	
-	// palette change request from keyboard
+	// video-mode change request from keyboard (cycles the 8-mode option)
 	if (palette_toggle != old_pal_toggle) begin
-		palette_req = palette_mode + 1'b1;
-		screen_mode_req = 2'b00; //force color when switching palettes
+		mode_req = video_mode + 3'd1;
+		screen_mode_req = 2'b00; //force color when switching video modes
 	end;
 	
 end
@@ -543,15 +557,13 @@ apple2_top apple2_top
 	.palette_switch(palette_toggle),
 	.SCREEN_MODE( status[20:19] ),
 	.TEXT_COLOR( text_color ),
-	.COLOR_PALETTE(status[25:24]),
+	.COLOR_PALETTE(color_palette),
 	.use_composite(use_composite),
-	.comp_preset(status[2:1]),
-	.comp_hfix(status[54]),
-	.comp_hue_adj({1'b0, status[61:57]} << 1),
-	.v5_hue_st(status[67:64]),
-	.v5_bright_st(status[53:52]),
-	.v5_sat_st(status[71:69]),
-	.v5_contrast_st(status[34:33]),
+	.comp_preset(comp_preset),
+	.comp_hue_adj(5'd3 * {3'b000, status[125:124]}),
+	.comp_bright_st(status[123:122]),
+	.comp_sat_st(status[127:126]),
+	.comp_contrast_st(status[121:120]),
 	.NTSC_VERTICAL_COMB(~status[32]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),
@@ -674,25 +686,25 @@ wire [7:0] virtual_font_data;
 wire virtual_font_alternate;
 wire virtual_font_lowercase;
 
-// Floppy drive sound: DISABLED in the WOZ variant (user decision,
-// 2026-09-08) - the flux drives expose no motor/step/track-zero signals.
-// The instance is kept with all motion inputs tied off so it can be
-// re-enabled trivially; it contributes silence.
+// Floppy drive sound: taps from the WOZ flux drives (step/track-0/IO +
+// motor); gain/enable from the P3o12 option, stereo "Drives" pan.
 floppy_sound floppy_sound
 (
 	.clk(clk_sys),
 	.reset(RESET | status[0] | buttons[1] | virtual_keyboard_reset | soft_reset),
-	.enable(1'b0),
-	.gain(2'd0),
-	.drive1_motor(1'b0),
-	.drive2_motor(1'b0),
-	.drive1_io(1'b0),
-	.drive2_io(1'b0),
-	.drive1_step(1'b0),
-	.drive2_step(1'b0),
-	.drive1_track_zero_step(1'b0),
-	.drive2_track_zero_step(1'b0),
-	.sample(floppy_audio)
+	.enable(status[34:33] != 2'd0),
+	.gain(status[34:33]),         // OSD states: 1=2x, 2=4x (1x unreachable from OSD)
+	.pan(2'd3),                   // hardwired "Drives": d1 hum+events left, d2 right
+	.drive1_motor(D1_MOTOR_ON),
+	.drive2_motor(D2_MOTOR_ON),
+	.drive1_io(D1_IO_ACTIVE),
+	.drive2_io(D2_IO_ACTIVE),
+	.drive1_step(D1_STEP_ACTIVE),
+	.drive2_step(D2_STEP_ACTIVE),
+	.drive1_track_zero_step(D1_TRACK_ZERO_STEP),
+	.drive2_track_zero_step(D2_TRACK_ZERO_STEP),
+	.sample(floppy_audio_l),
+	.sample_r(floppy_audio_r)
 );
 
 drive_status_overlay drive_status_overlay

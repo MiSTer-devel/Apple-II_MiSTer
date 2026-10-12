@@ -35,6 +35,15 @@ module disk_ii_woz (
 
     output wire        D1_ACTIVE,      // motor on (incl. 1 s holdover), drive 1 selected
     output wire        D2_ACTIVE,
+    output wire        D1_MOTOR_ON,    // immediate motor command, drive 1 (sound tap)
+    output wire        D2_MOTOR_ON,    // immediate motor command, drive 2 (sound tap)
+    // Sound-model event taps (floppy-sound branch), per drive.
+    output wire        D1_STEP,        // head-position change (quarter/fourth-track)
+    output wire        D2_STEP,
+    output wire        D1_TRACK0,      // stepping against the track-0 stopper
+    output wire        D2_TRACK0,
+    output wire        D1_IO,          // read-bit or write-bit activity
+    output wire        D2_IO,
     input  wire        D1_WP,          // OSD "write protect" override
     input  wire        D2_WP,
 
@@ -157,6 +166,8 @@ module disk_ii_woz (
         wire        mounted_in = (d == 0) ? IMG_MOUNTED0 : IMG_MOUNTED1;
 
         wire        flux;
+        wire        step_ev;
+        wire        trk0_ev;
         wire        wp;
         wire [8:0]  qtrack;
         wire [5:0]  bit_timer;
@@ -244,6 +255,8 @@ module disk_ii_woz (
             .DISK_WP(ctrl_wp || osd_wp[d] || !mounted),
             .DOUBLE_SIDED(1'b0),
             .FLUX_TRANSITION(flux),
+            .STEP_EVENT(step_ev),
+            .TRACK0_EVENT(trk0_ev),
             .WRITE_PROTECT(wp),
             .SENSE(),
             .DISK_SWITCHED_OUT(),
@@ -327,6 +340,23 @@ module disk_ii_woz (
 
     // Selected drive's view
     wire       sel_flux   = drive2_select ? drive_g[1].flux   : drive_g[0].flux;
+    // Sound taps (floppy-sound branch): step events, track-0 press, and IO activity (read-flux pulse while
+    // selected+spinning, or a write-cell strobe); single-cycle pulses, clk_sys == CLK_14M (pll -> emu), no CDC.
+    wire       d1_step    = drive_g[0].step_ev;
+    wire       d2_step    = drive_g[1].step_ev;
+    wire       d1_trk0    = drive_g[0].trk0_ev;
+    wire       d2_trk0    = drive_g[1].trk0_ev;
+    wire       d1_io      = (drive_g[0].flux && drv_sel_onehot[0] && drive_real_on)
+                          | (write_strobe && !drive2_select);
+    wire       d2_io      = (drive_g[1].flux && drv_sel_onehot[1] && drive_real_on)
+                          | (write_strobe &&  drive2_select);
+    assign D1_STEP = d1_step;   assign D2_STEP = d2_step;
+    assign D1_TRACK0 = d1_trk0; assign D2_TRACK0 = d2_trk0;
+    assign D1_IO = d1_io;       assign D2_IO = d2_io;
+    // Immediate motor-command taps: nib-era D*_MOTOR_ON semantics (not the held-over D*_ACTIVE), which the
+    // sound engine was tuned with.
+    assign D1_MOTOR_ON = drive_on && !drive2_select;
+    assign D2_MOTOR_ON = drive_on &&  drive2_select;
     wire       sel_wp     = drive2_select ? drive_g[1].wp     : drive_g[0].wp;
     wire [7:0] sel_timing = drive2_select ? drive_g[1].timing : drive_g[0].timing;
     wire [5:0] sel_bit_timer = drive2_select ? drive_g[1].bit_timer : drive_g[0].bit_timer;
