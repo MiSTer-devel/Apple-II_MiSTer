@@ -448,14 +448,16 @@ module apple2(
     assign RUN_FILL_OK = ~HIRES_MODE | ~DHIRES_MODE;
     // Per-line "early content" flag: the machine loads content 7 samples early on 80-col lines; both 80-col text
     // and DHGR ride that grid, so the flag includes both - vga shifts its window 7 samples left when set.
-    assign EARLY_VIDEO = COL80 | (GR2 & DHIRES_MODE);
+    assign EARLY_VIDEO = COL80 | (HIRES_MODE & DHIRES_MODE);
 
     // HGR art select = GR2 & ~EARLY_VIDEO & ~TEXT: pure HGR rides the 560 grid; 80-col text, DHGR and quirk-state
     // HGR (DHIRES=1 via $C05F) ride the 720 early grid. (Per-mode flag matrix verified on the machine.)
-    assign HGR_MODE = GR2 & ~EARLY_VIDEO & ~TEXT_MODE;
+    assign HGR_MODE = HIRES_MODE & ~EARLY_VIDEO & ~TEXT_MODE;
     // Quirk-state HGR (DHIRES=1): content sits at raw samples 7..566, displayed by the [7..566] window with the
     // early-grid color phase. Mutually exclusive with HGR_MODE (needs ~EARLY_VIDEO).
-    assign HGR80_MODE = GR2 & ~TEXT_MODE & ~COL80 & DHIRES_MODE;
+    // HIRES_MODE (soft[3]) rather than the TG's GR2 latch: with MIXED_MODE set,
+    // GR2 drops each frame near VBL and boundary lines escape this treatment.
+    assign HGR80_MODE = HIRES_MODE & ~TEXT_MODE & ~COL80 & DHIRES_MODE;
     // GR2 is an output port, exposed for the vga_controller mode selects.
 
 
