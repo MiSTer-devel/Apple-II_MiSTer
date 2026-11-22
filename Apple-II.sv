@@ -210,7 +210,8 @@ wire [31:0] sd_lba[3];
 reg   [2:0] sd_rd;
 reg   [2:0] sd_wr;
 wire  [2:0] sd_ack;
-wire  [8:0] sd_buff_addr;
+wire [13:0] sd_buff_addr;   // [13:9]=block index within a multi-block read, [8:0]=byte
+wire  [5:0] sd_blk_cnt[3];  // blocks-1 per channel (WOZ track reads request up to 32)
 wire  [7:0] sd_buff_dout;
 wire  [7:0] sd_buff_din[3];
 wire        sd_buff_wr;
@@ -323,6 +324,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
+	.sd_blk_cnt(sd_blk_cnt),
 	.sd_lba(sd_lba),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
@@ -579,18 +581,20 @@ apple2_top apple2_top
 	
 	// WOZ SD block interface: hps_io channel 0 -> drive 1, channel 2 ->
 	// drive 2 (channel 1 stays the HDD).  hps_io's streaming protocol is
-	// exactly what the WOZ expects; sd_blk_cnt is left unconnected (0 =
-	// single-block requests, which is all the WOZ issues).
+	// exactly what the WOZ expects. Track reads request up to 32 blocks per
+	// round trip (sd_blk_cnt); writes and the header scan stay single-block.
 	.SD_LBA0(sd_lba[0]),
 	.SD_RD0(sd_rd[0]),
 	.SD_WR0(sd_wr[0]),
 	.SD_ACK0(sd_ack[0]),
 	.SD_BUFF_DIN0(sd_buff_din[0]),
+	.SD_BLK_CNT0(sd_blk_cnt[0]),
 	.SD_LBA1(sd_lba[2]),
 	.SD_RD1(sd_rd[2]),
 	.SD_WR1(sd_wr[2]),
 	.SD_ACK1(sd_ack[2]),
 	.SD_BUFF_DIN1(sd_buff_din[2]),
+	.SD_BLK_CNT1(sd_blk_cnt[2]),
 	.SD_BUFF_ADDR(sd_buff_addr),
 	.SD_BUFF_DOUT(sd_buff_dout),
 	.SD_BUFF_WR(sd_buff_wr),
@@ -620,7 +624,7 @@ apple2_top apple2_top
 	.HDD_WRITE(hdd_write),
 	.HDD_MOUNTED(hdd_mounted),
 	.HDD_PROTECT(hdd_protect),
-	.HDD_RAM_ADDR(sd_buff_addr),
+	.HDD_RAM_ADDR(sd_buff_addr[8:0]),
 	.HDD_RAM_DI(sd_buff_dout),
 	.HDD_RAM_DO(sd_buff_din[1]),
 	.HDD_RAM_WE(sd_buff_wr & sd_ack[1]),

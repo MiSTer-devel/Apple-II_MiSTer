@@ -88,11 +88,13 @@ module apple2_top (
     SD_WR0,
     SD_ACK0,
     SD_BUFF_DIN0,
+    SD_BLK_CNT0,
     SD_LBA1,
     SD_RD1,
     SD_WR1,
     SD_ACK1,
     SD_BUFF_DIN1,
+    SD_BLK_CNT1,
     SD_BUFF_ADDR,
     SD_BUFF_DOUT,
     SD_BUFF_WR,
@@ -223,12 +225,14 @@ module apple2_top (
     output        SD_WR0;
     input         SD_ACK0;
     output [7:0]  SD_BUFF_DIN0;
+    output [5:0]  SD_BLK_CNT0;
     output [31:0] SD_LBA1;
     output        SD_RD1;
     output        SD_WR1;
     input         SD_ACK1;
     output [7:0]  SD_BUFF_DIN1;
-    input  [8:0]  SD_BUFF_ADDR;
+    output [5:0]  SD_BLK_CNT1;
+    input  [13:0] SD_BUFF_ADDR;   // [13:9]=block index, [8:0]=byte (hps_io multi-block)
     input  [7:0]  SD_BUFF_DOUT;
     input         SD_BUFF_WR;
     input         IMG_MOUNTED0;
@@ -732,11 +736,13 @@ module apple2_top (
         .SD_WR0(SD_WR0),
         .SD_ACK0(SD_ACK0),
         .SD_BUFF_DIN0(SD_BUFF_DIN0),
+        .SD_BLK_CNT0(SD_BLK_CNT0),
         .SD_LBA1(SD_LBA1),
         .SD_RD1(SD_RD1),
         .SD_WR1(SD_WR1),
         .SD_ACK1(SD_ACK1),
         .SD_BUFF_DIN1(SD_BUFF_DIN1),
+        .SD_BLK_CNT1(SD_BLK_CNT1),
         .SD_BUFF_ADDR(SD_BUFF_ADDR),
         .SD_BUFF_DOUT(SD_BUFF_DOUT),
         .SD_BUFF_WR(SD_BUFF_WR),

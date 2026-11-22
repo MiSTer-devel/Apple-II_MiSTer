@@ -53,12 +53,14 @@ module disk_ii_woz (
     output wire        SD_WR0,
     input  wire        SD_ACK0,
     output wire [7:0]  SD_BUFF_DIN0,
+    output wire [5:0]  SD_BLK_CNT0,    // blocks-1 for drive 1 track reads
     output wire [31:0] SD_LBA1,
     output wire        SD_RD1,
     output wire        SD_WR1,
     input  wire        SD_ACK1,
     output wire [7:0]  SD_BUFF_DIN1,
-    input  wire [8:0]  SD_BUFF_ADDR,
+    output wire [5:0]  SD_BLK_CNT1,    // blocks-1 for drive 2 track reads
+    input  wire [13:0] SD_BUFF_ADDR,   // [13:9]=block index, [8:0]=byte (hps_io multi-block)
     input  wire [7:0]  SD_BUFF_DOUT,
     input  wire        SD_BUFF_WR,
     input  wire        IMG_MOUNTED0,
@@ -188,6 +190,7 @@ module disk_ii_woz (
         wire        sd_rd;
         wire        sd_wr;
         wire [7:0]  sd_din;
+        wire [5:0]  sd_blk_cnt;
 
         // Mount pulse. A mount while already mounted must unmount first so the
         // WOZ controller re-parses the header (same dance as the IIgs top).
@@ -302,7 +305,9 @@ module disk_ii_woz (
             .sd_rd(sd_rd),
             .sd_wr(sd_wr),
             .sd_ack(sd_ack),
-            .sd_buff_addr(SD_BUFF_ADDR),
+            .sd_buff_addr(SD_BUFF_ADDR[8:0]),
+            .sd_buff_blk(SD_BUFF_ADDR[13:9]),
+            .sd_blk_cnt(sd_blk_cnt),
             .sd_buff_dout(SD_BUFF_DOUT),
             .sd_buff_din(sd_din),
             .sd_buff_wr(SD_BUFF_WR),
@@ -335,8 +340,8 @@ module disk_ii_woz (
         );
     end endgenerate
 
-    assign SD_LBA0 = drive_g[0].sd_lba; assign SD_RD0 = drive_g[0].sd_rd; assign SD_WR0 = drive_g[0].sd_wr; assign SD_BUFF_DIN0 = drive_g[0].sd_din;
-    assign SD_LBA1 = drive_g[1].sd_lba; assign SD_RD1 = drive_g[1].sd_rd; assign SD_WR1 = drive_g[1].sd_wr; assign SD_BUFF_DIN1 = drive_g[1].sd_din;
+    assign SD_LBA0 = drive_g[0].sd_lba; assign SD_RD0 = drive_g[0].sd_rd; assign SD_WR0 = drive_g[0].sd_wr; assign SD_BUFF_DIN0 = drive_g[0].sd_din; assign SD_BLK_CNT0 = drive_g[0].sd_blk_cnt;
+    assign SD_LBA1 = drive_g[1].sd_lba; assign SD_RD1 = drive_g[1].sd_rd; assign SD_WR1 = drive_g[1].sd_wr; assign SD_BUFF_DIN1 = drive_g[1].sd_din; assign SD_BLK_CNT1 = drive_g[1].sd_blk_cnt;
 
     // Selected drive's view
     wire       sel_flux   = drive2_select ? drive_g[1].flux   : drive_g[0].flux;
