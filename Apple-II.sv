@@ -79,6 +79,7 @@ parameter CONF_STR = {
 	"P2,Audio & Video;",
 	"P2-;",
 	"P2O78,Stereo mix,none,25%,50%,100%;",
+	"P2O[85:84],Beeper volume,Full,1/2,1/4,Off;",
 	"P2-;",
 	"P2OJK,Display,Color,B&W,Green,Amber;",
 	// Video Mode (P2o[54:52]): consolidated 8-mode video option replacing
@@ -90,12 +91,11 @@ parameter CONF_STR = {
 	"P2-;",
 	"P2OG,Pixel Clock,Double,Normal;",
 	"P2OL,Lo-Res Text,Clean,Composite;",
-	// NTSC fine-tune: only TV Saturation is exposed; Hue/Bright/Contrast are
-	// commented out below for easy restore (their bits then read 0 = no
-	// offset in video_pipeline). Comb Filter stays permanent at bit 32.
+	// NTSC fine-tune knobs all retired (Hue/Bright/Sat/Contrast commented out
+	// for easy restore)
 	// "P2O[125:124],NTSC Hue,0,3,6,9;",
 	// "P2O[123:122],NTSC Bright,0,-16,+16,+32;",
-	"P2O[127:126],TV Saturation,0,-16,+16,+32;",
+	// "P2O[127:126],TV Saturation,0,-16,+16,+32;",
 	// "P2O[121:120],NTSC Contrast,0,-16,+16,+32;",
 	"P2o0,NTSC Vert. Comb Filter,On,Off;",
 	"P2-;",
@@ -298,8 +298,8 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 	.buttons(buttons),
 	.status(status),
 	// Bit 45 ("Savestates to SDCard") and bits [34:33] (Disk drive sound) are live user toggles
-	.status_in({status[127:120],                                        // top block: only Sat [127:126] has an OSD option now (knob bits read 0 = no offset)
-		status[119:80],                                          // bits 80-119 free
+	.status_in({status[127:120],                                        // top block: all NTSC knobs retired; bits free (core inputs hardwired 0)
+		status[119:80],                                          // 85:84 Beeper volume; rest free
 		status[79:65],                                          // bits 65-79 free
 		status[64],                                              // bit 64 free
 		status[63:57],                                          // bits 57-63 free
@@ -548,16 +548,17 @@ apple2_top apple2_top
 	.COLOR_PALETTE(color_palette),
 	.use_composite(use_composite),
 	.comp_preset(comp_preset),
-	.comp_hue_adj(5'd3 * {3'b000, status[125:124]}),
-	.comp_bright_st(status[123:122]),
-	.comp_sat_st(status[127:126]),
-	.comp_contrast_st(status[121:120]),
+	.comp_hue_adj(5'd0),
+	.comp_bright_st(2'd0),
+	.comp_sat_st(2'd0),
+	.comp_contrast_st(2'd0),
 	.NTSC_VERTICAL_COMB(~status[32]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),
 
 	.AUDIO_L(core_audio_l),
 	.AUDIO_R(core_audio_r),
+	.SPK_GAIN(status[85:84]),
 	.TAPE_IN(tape_adc_act & tape_adc),
 
 	.PS2_Key(core_ps2_key),

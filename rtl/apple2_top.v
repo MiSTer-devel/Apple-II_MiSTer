@@ -125,6 +125,7 @@ module apple2_top (
     HDD_RAM_WE,
     AUDIO_L,
     AUDIO_R,
+    SPK_GAIN,
     TAPE_IN,
     UART_TXD,
     UART_RXD,
@@ -276,6 +277,11 @@ module apple2_top (
 
     output [9:0]  AUDIO_L;
     output [9:0]  AUDIO_R;
+    // Beeper attenuation ladder (OSD "Beeper volume", Apple-II.sv status[85:84]):
+    // 0 = x1
+    // 1 = x1/2,
+    // 2 = x1/4, 3 = Off.
+    input  [1:0]  SPK_GAIN;
     input         TAPE_IN;
 
     output        UART_TXD;
@@ -1112,7 +1118,13 @@ module apple2_top (
     // VERILOG_MACRO - see debug_compile.bat): debug-build stub set; no
     // effect on release builds.
 
-    assign audio = spk_avg;
+    // spk_avg is an unsigned duty average (0..512)
+    // Applied after the savestate tap, so state contents are gain-independent.
+    wire [9:0] spk_att = (SPK_GAIN == 2'd3) ? 10'd0
+                       : (SPK_GAIN == 2'd2) ? {2'b00, spk_avg[9:2]}
+                       : (SPK_GAIN == 2'd1) ? {1'b0,  spk_avg[9:1]}
+                       : spk_avg;
+    assign audio = spk_att;
     // 3x 10-bit sum needs 11 bits (765+765+512=2042); saturate instead of
     // truncating. Single-MB usage is bit-identical to the old wrap.
     wire [10:0] audio_sum_l = psg_4_audio_l + psg_5_audio_l + audio;
