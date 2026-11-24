@@ -79,6 +79,7 @@ parameter CONF_STR = {
 	"P2,Audio & Video;",
 	"P2-;",
 	"P2O78,Stereo mix,none,25%,50%,100%;",
+	"P2O[85:84],Beeper volume,Full,1/2,1/4,Off;",
 	"P2-;",
 	"P2OJK,Display,Color,B&W,Green,Amber;",
 	// Video Mode (P2o[54:52]): consolidated 8-mode video option replacing
@@ -90,12 +91,11 @@ parameter CONF_STR = {
 	"P2-;",
 	"P2OG,Pixel Clock,Double,Normal;",
 	"P2OL,Lo-Res Text,Clean,Composite;",
-	// NTSC fine-tune: only TV Saturation is exposed; Hue/Bright/Contrast are
-	// commented out below for easy restore (their bits then read 0 = no
-	// offset in video_pipeline). Comb Filter stays permanent at bit 32.
+	// NTSC fine-tune knobs all retired (Hue/Bright/Sat/Contrast commented out
+	// for easy restore)
 	// "P2O[125:124],NTSC Hue,0,3,6,9;",
 	// "P2O[123:122],NTSC Bright,0,-16,+16,+32;",
-	"P2O[127:126],TV Saturation,0,-16,+16,+32;",
+	// "P2O[127:126],TV Saturation,0,-16,+16,+32;",
 	// "P2O[121:120],NTSC Contrast,0,-16,+16,+32;",
 	"P2o0,NTSC Vert. Comb Filter,On,Off;",
 	"P2-;",
@@ -210,7 +210,8 @@ wire [31:0] sd_lba[3];
 reg   [2:0] sd_rd;
 reg   [2:0] sd_wr;
 wire  [2:0] sd_ack;
-wire  [8:0] sd_buff_addr;
+wire [13:0] sd_buff_addr;   // [13:9]=block index within a multi-block read, [8:0]=byte
+wire  [5:0] sd_blk_cnt[3];  // blocks-1 per channel (WOZ track reads request up to 32)
 wire  [7:0] sd_buff_dout;
 wire  [7:0] sd_buff_din[3];
 wire        sd_buff_wr;
@@ -297,10 +298,9 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	// Bit 45 ("Savestates to SDCard"): live user toggle, On by default; the
-	// one-shot boot write sets it high, then the HPS-held value passes through.
-	.status_in({status[127:120],                                        // top block: only Sat [127:126] has an OSD option now (knob bits read 0 = no offset)
-		status[119:80],                                          // bits 80-119 free
+	// Bit 45 ("Savestates to SDCard") and bits [34:33] (Disk drive sound) are live user toggles
+	.status_in({status[127:120],                                        // top block: all NTSC knobs retired; bits free (core inputs hardwired 0)
+		status[119:80],                                          // 85:84 Beeper volume; rest free
 		status[79:65],                                          // bits 65-79 free
 		status[64],                                              // bit 64 free
 		status[63:57],                                          // bits 57-63 free
@@ -308,22 +308,23 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 		palette_toggle?mode_req:status[54:52],              // bits 52-54 = Video Mode (P2o[54:52]); hotkey cycle mux
 		status[51:49],                                          // bits 49-51 free (48/49 = savestate F6/F5 action bits)
 		status[48],                                              // bits 48/49 = savestate_ui osd_save/osd_restore (OSD F6/F5 actions)
-		status[47:46],status[45] | ss_boot_clear,status[44:43],
+		status[47:46],status[45],status[44:43],
 		virtual_keyboard_enabled_toggle?~status[42]:status[42],
 		virtual_keyboard_transparency_cycle?virtual_keyboard_transparency_req:status[41:40],
 		status[39:35],
-		ss_boot_clear ? 2'd1 : status[34:33],                  // P3o12 Disk drive sound: one-shot boot write = On (2x); HPS-held value passes through afterwards
+		status[34:33],                                             // P3o12 Disk drive sound: HPS-held value (0 = Off on fresh boot)
 		status[32],status[31:28],                                  // P2o0 NTSC Vert. Comb Filter (permanent) state 0 = On (old handling, common to both modes)
 		status[27:26],                                             // OQR Write Protect (drive 1 = bit 26, drive 2 = bit 27)
 		status[25:24],status[23:21],                               // bits 24-25 freed by Video Mode consolidation (passthrough)
 		video_toggle?screen_mode_req:status[20:19],status[18:0]}),
-	.status_set(video_toggle || palette_toggle || virtual_keyboard_transparency_cycle || virtual_keyboard_enabled_toggle || ss_boot_clear),
+	.status_set(video_toggle || palette_toggle || virtual_keyboard_transparency_cycle || virtual_keyboard_enabled_toggle),
 	.status_menumask({ss_menumask[15:1], (video_mode == 3'd7)}),  // bit0: "Custom palette" line shown only in Custom RGB mode
 	.info_req(ss_info_req),
 	.info(ss_info),
 	.forced_scandoubler(forced_scandoubler),
 	.gamma_bus(gamma_bus),
 
+	.sd_blk_cnt(sd_blk_cnt),
 	.sd_lba(sd_lba),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
@@ -467,17 +468,6 @@ wire [7:0]  ss_info;
 // "Savestates to SDCard" toggle
 wire        ss_sd_enabled = status[45];
 
-reg  [4:0] ss_boot_cnt;
-reg        ss_boot_clear;
-always @(posedge clk_sys) begin
-	if (RESET) begin
-		ss_boot_cnt <= 5'd0;
-		ss_boot_clear <= 1'b0;
-	end else begin
-		if (ss_boot_cnt < 5'd16) ss_boot_cnt <= ss_boot_cnt + 5'd1;
-		ss_boot_clear <= (ss_boot_cnt == 5'd15);
-	end
-end
 wire [1:0] virtual_keyboard_transparency_req = virtual_keyboard_visibility + 1'd1;
 reg [1:0] screen_mode_req;
 reg [2:0] mode_req;
@@ -560,16 +550,17 @@ apple2_top apple2_top
 	.COLOR_PALETTE(color_palette),
 	.use_composite(use_composite),
 	.comp_preset(comp_preset),
-	.comp_hue_adj(5'd3 * {3'b000, status[125:124]}),
-	.comp_bright_st(status[123:122]),
-	.comp_sat_st(status[127:126]),
-	.comp_contrast_st(status[121:120]),
+	.comp_hue_adj(5'd0),
+	.comp_bright_st(2'd0),
+	.comp_sat_st(2'd0),
+	.comp_contrast_st(2'd0),
 	.NTSC_VERTICAL_COMB(~status[32]),
 	.PALMODE(status[22]),
 	.ROMSWITCH(~status[23]),
 
 	.AUDIO_L(core_audio_l),
 	.AUDIO_R(core_audio_r),
+	.SPK_GAIN(status[85:84]),
 	.TAPE_IN(tape_adc_act & tape_adc),
 
 	.PS2_Key(core_ps2_key),
@@ -590,18 +581,20 @@ apple2_top apple2_top
 	
 	// WOZ SD block interface: hps_io channel 0 -> drive 1, channel 2 ->
 	// drive 2 (channel 1 stays the HDD).  hps_io's streaming protocol is
-	// exactly what the WOZ expects; sd_blk_cnt is left unconnected (0 =
-	// single-block requests, which is all the WOZ issues).
+	// exactly what the WOZ expects. Track reads request up to 32 blocks per
+	// round trip (sd_blk_cnt); writes and the header scan stay single-block.
 	.SD_LBA0(sd_lba[0]),
 	.SD_RD0(sd_rd[0]),
 	.SD_WR0(sd_wr[0]),
 	.SD_ACK0(sd_ack[0]),
 	.SD_BUFF_DIN0(sd_buff_din[0]),
+	.SD_BLK_CNT0(sd_blk_cnt[0]),
 	.SD_LBA1(sd_lba[2]),
 	.SD_RD1(sd_rd[2]),
 	.SD_WR1(sd_wr[2]),
 	.SD_ACK1(sd_ack[2]),
 	.SD_BUFF_DIN1(sd_buff_din[2]),
+	.SD_BLK_CNT1(sd_blk_cnt[2]),
 	.SD_BUFF_ADDR(sd_buff_addr),
 	.SD_BUFF_DOUT(sd_buff_dout),
 	.SD_BUFF_WR(sd_buff_wr),
@@ -631,7 +624,7 @@ apple2_top apple2_top
 	.HDD_WRITE(hdd_write),
 	.HDD_MOUNTED(hdd_mounted),
 	.HDD_PROTECT(hdd_protect),
-	.HDD_RAM_ADDR(sd_buff_addr),
+	.HDD_RAM_ADDR(sd_buff_addr[8:0]),
 	.HDD_RAM_DI(sd_buff_dout),
 	.HDD_RAM_DO(sd_buff_din[1]),
 	.HDD_RAM_WE(sd_buff_wr & sd_ack[1]),
