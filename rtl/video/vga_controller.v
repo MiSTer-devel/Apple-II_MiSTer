@@ -3,7 +3,8 @@
 
 //-----------------------------------------------------------------------------
 //
-// A VGA line-doubler for an Apple ][
+// Native-rate Apple ][ RGB renderer (560x192, no line doubling): counters free-run
+// on CLK_14M; previous_line_rgb holds one line of history for the vertical comb filter.
 //
 // Original implementation by Stephen A. Edwards, sedwards@cs.columbia.edu
 // Palette and color enhancements by Newsdee, newsdee@gmail.com

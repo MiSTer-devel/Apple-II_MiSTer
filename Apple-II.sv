@@ -297,8 +297,7 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 
 	.buttons(buttons),
 	.status(status),
-	// Bit 45 ("Savestates to SDCard"): live user toggle, On by default; the
-	// one-shot boot write sets it high, then the HPS-held value passes through.
+	// Bit 45 ("Savestates to SDCard") and bits [34:33] (Disk drive sound) are live user toggles
 	.status_in({status[127:120],                                        // top block: only Sat [127:126] has an OSD option now (knob bits read 0 = no offset)
 		status[119:80],                                          // bits 80-119 free
 		status[79:65],                                          // bits 65-79 free
@@ -308,16 +307,16 @@ hps_io #(.CONF_STR(CONF_STR), .VDNUM(3)) hps_io
 		palette_toggle?mode_req:status[54:52],              // bits 52-54 = Video Mode (P2o[54:52]); hotkey cycle mux
 		status[51:49],                                          // bits 49-51 free (48/49 = savestate F6/F5 action bits)
 		status[48],                                              // bits 48/49 = savestate_ui osd_save/osd_restore (OSD F6/F5 actions)
-		status[47:46],status[45] | ss_boot_clear,status[44:43],
+		status[47:46],status[45],status[44:43],
 		virtual_keyboard_enabled_toggle?~status[42]:status[42],
 		virtual_keyboard_transparency_cycle?virtual_keyboard_transparency_req:status[41:40],
 		status[39:35],
-		ss_boot_clear ? 2'd1 : status[34:33],                  // P3o12 Disk drive sound: one-shot boot write = On (2x); HPS-held value passes through afterwards
+		status[34:33],                                             // P3o12 Disk drive sound: HPS-held value (0 = Off on fresh boot)
 		status[32],status[31:28],                                  // P2o0 NTSC Vert. Comb Filter (permanent) state 0 = On (old handling, common to both modes)
 		status[27:26],                                             // OQR Write Protect (drive 1 = bit 26, drive 2 = bit 27)
 		status[25:24],status[23:21],                               // bits 24-25 freed by Video Mode consolidation (passthrough)
 		video_toggle?screen_mode_req:status[20:19],status[18:0]}),
-	.status_set(video_toggle || palette_toggle || virtual_keyboard_transparency_cycle || virtual_keyboard_enabled_toggle || ss_boot_clear),
+	.status_set(video_toggle || palette_toggle || virtual_keyboard_transparency_cycle || virtual_keyboard_enabled_toggle),
 	.status_menumask({ss_menumask[15:1], (video_mode == 3'd7)}),  // bit0: "Custom palette" line shown only in Custom RGB mode
 	.info_req(ss_info_req),
 	.info(ss_info),
@@ -467,17 +466,6 @@ wire [7:0]  ss_info;
 // "Savestates to SDCard" toggle
 wire        ss_sd_enabled = status[45];
 
-reg  [4:0] ss_boot_cnt;
-reg        ss_boot_clear;
-always @(posedge clk_sys) begin
-	if (RESET) begin
-		ss_boot_cnt <= 5'd0;
-		ss_boot_clear <= 1'b0;
-	end else begin
-		if (ss_boot_cnt < 5'd16) ss_boot_cnt <= ss_boot_cnt + 5'd1;
-		ss_boot_clear <= (ss_boot_cnt == 5'd15);
-	end
-end
 wire [1:0] virtual_keyboard_transparency_req = virtual_keyboard_visibility + 1'd1;
 reg [1:0] screen_mode_req;
 reg [2:0] mode_req;
